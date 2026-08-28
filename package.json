@@ -1,0 +1,19 @@
+{
+  "name": "coding-agent-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/tui"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @coding-agent/tui run dev --",
+    "build": "npm --workspace @coding-agent/tui run build",
+    "start": "npm --workspace @coding-agent/tui run start --",
+    "typecheck": "npm --workspace @coding-agent/tui run typecheck",
+    "test:tui": "npm --workspace @coding-agent/tui run test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
