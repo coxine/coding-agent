@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
+
+
+_MODEL_CONFIG_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "AGENT_MODEL"}
+
 
 class ConfigurationError(ValueError):
     """Raised when the core cannot start with the supplied configuration."""
@@ -32,19 +37,27 @@ class AgentConfig:
         if not workspace.exists() or not workspace.is_dir():
             raise ConfigurationError("workspaceRoot must be an existing directory")
 
-        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        workspace = workspace.resolve()
+        file_values = cls._dotenv_values(workspace)
+
+        api_key = cls._first_nonempty(
+            os.environ.get("OPENAI_API_KEY"), file_values.get("OPENAI_API_KEY")
+        )
         if not api_key:
             raise ConfigurationError("OPENAI_API_KEY is required")
 
-        model_value = payload.get("model") or os.environ.get("AGENT_MODEL", "")
-        model = model_value.strip() if isinstance(model_value, str) else ""
+        model = cls._first_nonempty(
+            payload.get("model"), os.environ.get("AGENT_MODEL"), file_values.get("AGENT_MODEL")
+        )
         if not model:
             raise ConfigurationError("model or AGENT_MODEL is required")
 
-        base_value = payload.get("baseUrl") or os.environ.get(
-            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        base_url = cls._first_nonempty(
+            payload.get("baseUrl"),
+            os.environ.get("OPENAI_BASE_URL"),
+            file_values.get("OPENAI_BASE_URL"),
+            "https://api.openai.com/v1",
         )
-        base_url = base_value.strip() if isinstance(base_value, str) else ""
         if not base_url.startswith(("http://", "https://")):
             raise ConfigurationError("baseUrl must start with http:// or https://")
 
@@ -59,7 +72,7 @@ class AgentConfig:
         )
 
         return cls(
-            workspace_root=workspace.resolve(),
+            workspace_root=workspace,
             api_key=api_key,
             base_url=base_url.rstrip("/"),
             model=model,
@@ -67,6 +80,35 @@ class AgentConfig:
             command_timeout_ms=timeout,
             max_context_chars=context_chars,
         )
+
+    @staticmethod
+    def _first_nonempty(*values: Any) -> str:
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _dotenv_values(workspace: Path) -> dict[str, str]:
+        env_file = workspace / ".env"
+        if not env_file.exists():
+            return {}
+        if not env_file.is_file():
+            raise ConfigurationError("workspace .env must be a regular file")
+        try:
+            env_file.resolve().relative_to(workspace)
+        except ValueError as exc:
+            raise ConfigurationError("workspace .env must not point outside the workspace") from exc
+
+        try:
+            parsed = dotenv_values(env_file)
+        except (OSError, ValueError) as exc:
+            raise ConfigurationError(f"could not read workspace .env: {exc}") from exc
+        return {
+            key: value
+            for key, value in parsed.items()
+            if key in _MODEL_CONFIG_KEYS and isinstance(value, str)
+        }
 
     @staticmethod
     def _bounded_int(
@@ -78,4 +120,3 @@ class AgentConfig:
         if not minimum <= value <= maximum:
             raise ConfigurationError(f"{key} must be between {minimum} and {maximum}")
         return value
-

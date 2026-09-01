@@ -85,7 +85,7 @@ npm install
 
 ### 2. 配置模型
 
-程序通过环境变量读取模型配置：
+程序会自动读取工作区根目录下的 `.env`，也支持使用已导出的环境变量：
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
@@ -99,7 +99,15 @@ export AGENT_MODEL="your-model-name"
 | `OPENAI_BASE_URL` | 否 | API 地址，默认 `https://api.openai.com/v1` |
 | `AGENT_MODEL` | 是 | 需要调用的模型名称 |
 
-仓库提供了 [.env.example](../.env.example) 作为变量模板。程序不会自动加载 `.env`，因此需要在启动前将变量导入当前 shell。不要提交包含真实凭据的文件。
+仓库提供了 [.env.example](../.env.example) 作为变量模板。你可以在准备运行 `coding-agent` 的目标项目中创建 `.env`：
+
+```dotenv
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://your-provider.example/v1
+AGENT_MODEL=your-model-name
+```
+
+Core 只从 `.env` 选取上述三个配置项，不会把文件中的其他变量导入进程环境。配置优先级为：命令行参数 > 已导出的环境变量 > 工作区 `.env` > 默认值。不要提交包含真实凭据的 `.env`。
 
 ### 3. 启动
 
@@ -253,9 +261,10 @@ coding-agent/
 
 ### 启动后提示缺少 `OPENAI_API_KEY`
 
-确认变量已经导入启动 TUI 的同一个 shell：
+确认当前工作区的 `.env` 包含正确变量，或者变量已经导入启动 TUI 的同一个 shell：
 
 ```bash
+test -f .env && echo ".env exists"
 echo "$OPENAI_API_KEY"
 ```
 

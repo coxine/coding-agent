@@ -6,6 +6,7 @@ readme = "docs/README.md"
 requires-python = ">=3.11"
 dependencies = [
   "openai>=1.0.0,<3",
+  "python-dotenv>=1.0.0,<2",
 ]
 
 [project.scripts]
@@ -28,4 +29,3 @@ packages = ["src/agent_coder"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from agent_coder.config import AgentConfig, ConfigurationError
@@ -15,6 +17,67 @@ def test_config_reads_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> 
     assert config.api_key == "secret"
 
 
+def test_config_reads_workspace_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("AGENT_MODEL", raising=False)
+    monkeypatch.setenv("UNRELATED_EXISTING", "keep")
+    (tmp_path / ".env").write_text(
+        """OPENAI_API_KEY=dotenv-secret
+OPENAI_BASE_URL=https://gateway.example/v1
+AGENT_MODEL=dotenv-model
+UNRELATED_SECRET=must-not-be-exported
+""",
+        encoding="utf-8",
+    )
+
+    config = AgentConfig.from_initialize({"workspaceRoot": str(tmp_path)})
+
+    assert config.api_key == "dotenv-secret"
+    assert config.base_url == "https://gateway.example/v1"
+    assert config.model == "dotenv-model"
+    assert "UNRELATED_SECRET" not in os.environ
+
+
+def test_environment_and_cli_override_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    (tmp_path / ".env").write_text(
+        """OPENAI_API_KEY=file-key
+OPENAI_BASE_URL=https://file.example/v1
+AGENT_MODEL=file-model
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "environment-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://environment.example/v1")
+    monkeypatch.setenv("AGENT_MODEL", "environment-model")
+
+    config = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "cli-model",
+            "baseUrl": "https://cli.example/v1",
+        }
+    )
+
+    assert config.api_key == "environment-key"
+    assert config.base_url == "https://cli.example/v1"
+    assert config.model == "cli-model"
+
+
+def test_dotenv_symlink_cannot_escape_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    outside = tmp_path.parent / "outside.env"
+    outside.write_text("OPENAI_API_KEY=secret\nAGENT_MODEL=test\n", encoding="utf-8")
+    (tmp_path / ".env").symlink_to(outside)
+
+    with pytest.raises(ConfigurationError, match="outside the workspace"):
+        AgentConfig.from_initialize({"workspaceRoot": str(tmp_path)})
+
+
 def test_config_requires_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
@@ -25,4 +88,3 @@ def test_config_rejects_relative_workspace(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     with pytest.raises(ConfigurationError, match="absolute"):
         AgentConfig.from_initialize({"workspaceRoot": ".", "model": "test"})
-
