@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 import {randomUUID} from 'node:crypto';
 import {CoreClient} from './core-client.js';
+import {matchingCommands, SlashCommand} from './commands.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
 import {Approval, initialState, reducer, SessionSummary, ToolView, TranscriptItem} from './state.js';
@@ -20,6 +21,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	const [approvalChoice, setApprovalChoice] = useState<'allow' | 'deny'>('deny');
 	const [cancelling, setCancelling] = useState(false);
 	const [sessionChoice, setSessionChoice] = useState(0);
+	const [commandChoice, setCommandChoice] = useState(0);
 	const clientRef = useRef<CoreClient | null>(null);
 
 	useEffect(() => {
@@ -57,6 +59,12 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	}, [state.conversationId, state.sessionPickerOpen, state.sessions]);
 
 	const canSubmit = state.connection === 'ready' && !state.activeTurnId;
+	const commands = useMemo(() => matchingCommands(input), [input]);
+	const commandPaletteOpen = canSubmit && commands.length > 0;
+
+	useEffect(() => {
+		setCommandChoice(0);
+	}, [input]);
 
 	useInput((character, key) => {
 		const client = clientRef.current;
@@ -101,6 +109,26 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 		}
 		if (!canSubmit) return;
 
+		if (commandPaletteOpen) {
+			if (key.escape) {
+				setInput('');
+				return;
+			}
+			if (key.upArrow) {
+				setCommandChoice(value => Math.max(0, value - 1));
+				return;
+			}
+			if (key.downArrow || key.tab) {
+				setCommandChoice(value => Math.min(commands.length - 1, value + 1));
+				return;
+			}
+			if (key.return && commands[commandChoice]) {
+				runSlashCommand(commands[commandChoice].name, client);
+				setInput('');
+				return;
+			}
+		}
+
 		if (key.return) {
 			if (key.meta || key.ctrl) {
 				setInput(value => `${value}\n`);
@@ -108,8 +136,8 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			}
 			const text = input.trim();
 			if (!text) return;
-			if (text === '/session') {
-				client.listSessions();
+			if (text.startsWith('/')) {
+				dispatch({type: 'notice', message: `Unknown command: ${text}`, level: 'error'});
 				setInput('');
 				return;
 			}
@@ -150,7 +178,10 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 					<Text>{state.fatalError}</Text>
 				</Box>
 			) : (
-				<Composer value={input} enabled={canSubmit} />
+				<Box flexDirection="column">
+					{commandPaletteOpen && <CommandPalette commands={commands} choice={commandChoice} />}
+					<Composer value={input} enabled={canSubmit} />
+				</Box>
 			)}
 			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} sessions={state.sessionPickerOpen} />
 		</Box>
@@ -226,6 +257,20 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 	);
 }
 
+function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: number}): React.ReactNode {
+	return (
+		<Box flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1} marginBottom={1}>
+			<Text bold color="blue">Commands</Text>
+			{commands.map((command, index) => (
+				<Text key={command.name} inverse={index === choice}>
+					{index === choice ? '› ' : '  '}<Text bold>{command.name}</Text> <Text dimColor>— {command.description}</Text>
+				</Text>
+			))}
+			<Text dimColor>type to filter • ↑/↓ select • enter run • esc close</Text>
+		</Box>
+	);
+}
+
 function Composer({value, enabled}: {value: string; enabled: boolean}): React.ReactNode {
 	return (
 		<Box borderStyle="round" borderColor={enabled ? 'blue' : 'gray'} paddingX={1}>
@@ -249,6 +294,10 @@ function Footer({active, approval, sessions}: {active: boolean; approval: boolea
 function formatDate(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function runSlashCommand(name: string, client: CoreClient): void {
+	if (name === '/session') client.listSessions();
 }
 
 function Spinner(): React.ReactNode {

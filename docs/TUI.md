@@ -119,6 +119,10 @@ Core 无法启动或已经异常退出。显示错误摘要，并允许退出或
 
 用户在 Composer 输入 `/session` 后进入。面板列出当前工作区的历史对话，显示标题、更新时间、turn 数和当前项标记。方向键移动，Enter 切换，`N` 新建，Esc 关闭。Agent 运行或等待批准时不能打开或切换。
 
+### 5.7 `command_palette`
+
+用户在空闲 Composer 中键入 `/` 后显示。面板从真实注册的斜杠命令中按已输入前缀过滤；方向键移动，Enter 执行，Esc 清空命令输入并关闭。未知的 `/...` 不发送给模型，而是显示本地错误通知。
+
 ## 6. 组件结构
 
 ```text
@@ -137,6 +141,7 @@ App
 ├── Composer
 ├── ApprovalDialog
 ├── SessionPicker
+├── CommandPalette
 ├── DetailsPanel
 └── Footer
 ```
@@ -293,6 +298,7 @@ App
 | --- | --- | --- |
 | `Enter` | 提交输入 | `composing` |
 | `/session` | 打开对话选择面板 | `composing` |
+| `/` | 唤起命令列表；继续输入可过滤 | `composing` |
 | `↑` / `↓` | 选择历史对话 | `session_picker` |
 | `Enter` | 切换到选中对话 | `session_picker` |
 | `N` | 新建并切换到空白对话 | `session_picker` |
