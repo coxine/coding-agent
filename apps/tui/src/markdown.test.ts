@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {parseInline, parseMarkdown, stripTerminalControls} from './markdown.js';
+import React from 'react';
+import {renderToString} from 'ink';
+import stringWidth from 'string-width';
+import {highlightCode, MarkdownText, parseInline, parseMarkdown, stripTerminalControls} from './markdown.js';
 
 test('parseInline recognizes common inline markdown', () => {
 	assert.deepEqual(parseInline('Use **bold**, *italic*, `code`, ~~old~~ and [docs](https://example.com).'), [
@@ -53,7 +56,45 @@ test('parseMarkdown treats an unfinished fence as a streaming code block', () =>
 	]);
 });
 
+test('parseMarkdown recognizes tables and column alignment', () => {
+	assert.deepEqual(
+		parseMarkdown('| Name | Value | Note |\n| :--- | ---: | :---: |\n| **one** | 42 | `a|b` |\n| two | 7 | a\\|b |'),
+		[{
+			type: 'table',
+			headers: ['Name', 'Value', 'Note'],
+			alignments: ['left', 'right', 'center'],
+			rows: [
+				['**one**', '42', '`a|b`'],
+				['two', '7', 'a|b'],
+			],
+		}],
+	);
+});
+
+test('highlightCode adds ANSI colors for known languages and falls back safely', () => {
+	const highlighted = highlightCode('const answer = 42;', 'typescript');
+	assert.match(highlighted, /\u001B\[/);
+	assert.equal(stripTerminalControls(highlighted), 'const answer = 42;');
+	assert.equal(highlightCode('plain text', 'not-a-language'), 'plain text');
+});
+
+test('MarkdownText renders aligned wide-character tables and highlighted code', () => {
+	const output = renderToString(
+		React.createElement(MarkdownText, {
+			children: '| 名称 | Value |\n| --- | ---: |\n| 测试 | 42 |\n\n~~~ts\nconst answer = 42;\n~~~',
+		}),
+		{columns: 100},
+	);
+	const plain = stripTerminalControls(output);
+	const lines = plain.split('\n');
+	const tableStart = lines.findIndex(line => line.startsWith('┌'));
+	const tableLines = lines.slice(tableStart, tableStart + 5);
+	assert.equal(tableLines.length, 5);
+	assert.equal(new Set(tableLines.map(line => stringWidth(line))).size, 1);
+	assert.match(plain, /const answer = 42;/);
+	assert.match(output, /\u001B\[/);
+});
+
 test('stripTerminalControls removes ANSI and control characters', () => {
 	assert.equal(stripTerminalControls('\u001b[31mred\u001b[0m\u0000 text'), 'red text');
 });
-
