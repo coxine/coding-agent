@@ -103,25 +103,38 @@ export AGENT_MODEL="your-model-name"
 
 ### 3. 启动
 
-开发模式：
+推荐安装为本机命令：
 
 ```bash
-npm run dev -- --cwd /absolute/path/to/target-project
+npm run install:command
 ```
 
-例如，让 Agent 操作当前目录：
+安装完成后，进入需要处理的项目并直接启动：
 
 ```bash
-npm run dev -- --cwd "$PWD"
+cd /absolute/path/to/target-project
+coding-agent
 ```
 
-启动时覆盖模型或 API 地址：
+Agent 默认把执行 `coding-agent` 时的当前目录作为工作区，不需要显式传入路径。仍可通过参数覆盖工作区、模型或 API 地址：
 
 ```bash
-npm run dev -- \
+coding-agent \
   --cwd /absolute/path/to/target-project \
   --model your-model-name \
   --base-url https://your-provider.example/v1
+```
+
+开发模式无需安装全局命令：
+
+```bash
+npm run dev
+```
+
+该命令同样默认使用当前目录。若在 `coding-agent` 仓库中运行，它会把智能体自身的仓库作为工作区；开发时可用 `--cwd` 指定其他测试项目：
+
+```bash
+npm run dev -- --cwd /absolute/path/to/target-project
 ```
 
 生产构建：
@@ -134,7 +147,7 @@ npm start -- --cwd /absolute/path/to/target-project
 查看命令参数：
 
 ```bash
-npm run dev -- --help
+coding-agent --help
 ```
 
 ## 使用示例
@@ -170,12 +183,24 @@ Agent 会在界面中展示读取文件、搜索代码、应用补丁和运行�
 
 | 参数 | 说明 |
 | --- | --- |
-| `--cwd PATH` | Agent 可操作的工作区；默认是启动命令所在目录 |
+| `--cwd PATH` | 覆盖 Agent 工作区；不传时使用当前所在目录 |
 | `--model NAME` | 覆盖 `AGENT_MODEL` |
 | `--base-url URL` | 覆盖 `OPENAI_BASE_URL` |
 | `--help` | 显示帮助信息 |
 
-建议始终明确传入 `--cwd`，避免把 `coding-agent` 自身仓库误当作目标项目。
+通常只需先 `cd` 到目标项目再运行 `coding-agent`。在智能体自身仓库内调试时，建议用 `--cwd` 指向单独的测试项目。
+
+## 可执行文件说明
+
+`npm run install:command` 会生成可执行的 TUI 构建产物，并通过 npm link 在当前 Node.js 环境中安装一个 `coding-agent` 命令。可以用下面的命令确认安装位置：
+
+```bash
+command -v coding-agent
+```
+
+该命令入口是单一可执行启动器，但不是完全自包含的原生二进制：运行时仍需要本机的 Node.js、uv、项目 Python 环境及本仓库目录。移动或删除仓库后，需要重新安装命令。
+
+如果使用 nvm 切换 Node.js 版本，npm 的全局命令目录也可能发生变化；切换后重新执行 `npm run install:command` 即可。
 
 ## 开发与测试
 
@@ -269,4 +294,3 @@ echo "$OPENAI_API_KEY"
 - [本地工具规范](./TOOLS.md)
 - [Agent 循环设计](./AGENT_LOOP.md)
 - [TUI 交互设计](./TUI.md)
-

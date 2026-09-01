@@ -21,7 +21,10 @@ function parseArguments(argv: string[]): Options {
 		else if (argument === '--model') model = requireValue(argv, ++index, '--model');
 		else if (argument === '--base-url') baseUrl = requireValue(argv, ++index, '--base-url');
 		else if (argument === '--help' || argument === '-h') {
-			process.stdout.write('Usage: npm run dev -- [--cwd PATH] [--model NAME] [--base-url URL]\n');
+			process.stdout.write(
+				'Usage: coding-agent [--cwd PATH] [--model NAME] [--base-url URL]\n' +
+				'\nThe workspace defaults to the current directory.\n',
+			);
 			process.exit(0);
 		} else {
 			throw new Error(`Unknown argument: ${argument}`);

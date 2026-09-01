@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm --workspace @coding-agent/tui run dev --",
     "build": "npm --workspace @coding-agent/tui run build",
+    "install:command": "npm run build && npm link --workspace @coding-agent/tui",
     "start": "npm --workspace @coding-agent/tui run start --",
     "typecheck": "npm --workspace @coding-agent/tui run typecheck",
     "test:tui": "npm --workspace @coding-agent/tui run test"
