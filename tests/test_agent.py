@@ -144,3 +144,36 @@ async def test_high_risk_tool_can_be_denied(tmp_path) -> None:
     assert tool_event["payload"]["error"]["code"] == "approval_denied"
     assert events(output)[-1]["type"] == "turn_finished"
 
+
+@pytest.mark.asyncio
+async def test_agent_restores_history_and_persists_completed_turn(tmp_path) -> None:
+    output = io.StringIO()
+    model = FakeModel([AssistantReply(content="Second answer.", tool_calls=[])])
+    snapshots: list[list[dict[str, Any]]] = []
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    async def persist(messages: list[dict[str, Any]]) -> None:
+        snapshots.append([dict(message) for message in messages])
+
+    history = [
+        {"role": "user", "content": "First question"},
+        {"role": "assistant", "content": "First answer."},
+    ]
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+        history_messages=history,
+        persist_messages=persist,
+    )
+    await agent.run_turn("turn_test", "Second question")
+
+    assert model.requests[0][1:3] == history
+    assert snapshots[0][-1] == {"role": "user", "content": "Second question"}
+    assert snapshots[-1][-1] == {"role": "assistant", "content": "Second answer."}

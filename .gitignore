@@ -1,4 +1,5 @@
 .env
+.coding-agent/
 .env.*
 !.env.example
 .venv/
@@ -12,4 +13,3 @@ dist/
 build/
 *.log
 .DS_Store
-

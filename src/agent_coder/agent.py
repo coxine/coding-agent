@@ -15,6 +15,7 @@ from .tools import ToolRegistry, ToolResult
 
 
 ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
+PersistCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
 
 
 SYSTEM_PROMPT = """You are a local coding agent operating inside one workspace.
@@ -57,6 +58,8 @@ class Agent:
         model: ModelClientProtocol,
         tools: ToolRegistry,
         request_approval: ApprovalCallback,
+        history_messages: list[dict[str, Any]] | None = None,
+        persist_messages: PersistCallback | None = None,
     ) -> None:
         self.config = config
         self.session_id = session_id
@@ -64,6 +67,7 @@ class Agent:
         self.model = model
         self.tools = tools
         self.request_approval = request_approval
+        self.persist_messages = persist_messages
         self.context = ContextManager(config.max_context_chars)
         self.messages: list[dict[str, Any]] = [
             {
@@ -73,10 +77,12 @@ class Agent:
                 + "The target platform is macOS/Linux and commands are non-interactive.",
             }
         ]
+        self.messages.extend(history_messages or [])
 
     async def run_turn(self, turn_id: str, user_text: str) -> None:
         turn = TurnState(turn_id=turn_id, user_text=user_text)
         self.messages.append({"role": "user", "content": user_text})
+        await self._persist()
         await self._emit("turn_started", {"text": user_text}, turn)
         try:
             await self._run_loop(turn)
@@ -148,10 +154,13 @@ class Agent:
                         }
                     )
                     if turn.terminal:
+                        await self._persist()
                         return
+                await self._persist()
                 continue
 
             if reply.content.strip():
+                await self._persist()
                 turn.terminal = True
                 await self._emit(
                     "turn_finished",
@@ -177,6 +186,11 @@ class Agent:
                     "content": "Your response was empty. Continue the task using tools or provide a final answer.",
                 }
             )
+            await self._persist()
+
+    async def _persist(self) -> None:
+        if self.persist_messages is not None:
+            await self.persist_messages(self.messages[1:])
 
     async def _execute_call(self, turn: TurnState, call: ToolCall) -> ToolResult:
         turn.tool_calls += 1
@@ -343,4 +357,3 @@ class Agent:
         if name == "apply_patch":
             return "Apply a patch that includes a high-risk file deletion"
         return name
-

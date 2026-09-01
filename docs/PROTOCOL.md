@@ -74,6 +74,7 @@ TypeScript TUI <─stdout── Python Agent Core
 ID 约定：
 
 - `sessionId`：一次 Core 进程生命周期。
+- `conversationId`：当前工作区内一份可跨进程恢复的对话记录，通过相关消息的 payload 传递。
 - `turnId`：一次用户提交到最终完成、失败或取消。
 - `toolCallId`：采用模型返回的 tool call ID；如果上游没有提供，由 Core 生成。
 - `messageId`：每条协议消息都生成新的唯一 ID。
@@ -208,7 +209,30 @@ TUI                           Core
 
 Core 收到后应中断模型请求、正在等待的批准或本地子进程，并最终发送 `turn_cancelled`。取消是异步请求，TUI 不能在发出后立即假设任务已经结束。
 
-### 6.5 `shutdown`
+### 6.5 `list_sessions`
+
+请求当前工作区的对话列表。payload 为空，Core 返回 `sessions_listed`。仅允许在初始化完成后调用。
+
+### 6.6 `switch_session`
+
+```json
+{
+  "protocolVersion": 1,
+  "type": "switch_session",
+  "messageId": "msg_switch_1",
+  "timestamp": "2026-08-27T08:05:00.000Z",
+  "sessionId": "sess_1",
+  "payload": {"conversationId": "conv_0123456789abcdef0123456789abcdef"}
+}
+```
+
+只能切换 `list_sessions` 返回的当前工作区对话。存在活动 turn 时返回 `turn_already_running`。
+
+### 6.7 `create_session`
+
+请求在当前工作区新建空白 Conversation 并立即切换。payload 为空；存在活动 turn 时拒绝。
+
+### 6.8 `shutdown`
 
 请求正常关闭 Core：
 
@@ -239,6 +263,12 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
   "payload": {
     "workspaceRoot": "/absolute/path/to/project",
     "model": "model-name",
+    "conversationId": "conv_0123456789abcdef0123456789abcdef",
+    "conversationTitle": "修复价格计算精度问题",
+    "transcript": [
+      {"role": "user", "content": "修复价格计算精度问题"},
+      {"role": "assistant", "content": "已完成。"}
+    ],
     "capabilities": {
       "streaming": true,
       "toolCalling": true,
@@ -249,6 +279,34 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 ```
 
 只有工作区、模型配置、工具注册表和协议均通过校验后才能发送。
+
+### 7.1.1 `sessions_listed`
+
+返回按 `updatedAt` 倒序排列的会话摘要：
+
+```json
+{
+  "type": "sessions_listed",
+  "payload": {
+    "activeConversationId": "conv_0123456789abcdef0123456789abcdef",
+    "sessions": [{
+      "id": "conv_0123456789abcdef0123456789abcdef",
+      "title": "修复价格计算精度问题",
+      "createdAt": "2026-08-27T08:00:00.000000Z",
+      "updatedAt": "2026-08-27T08:04:00.000000Z",
+      "messageCount": 1
+    }]
+  }
+}
+```
+
+### 7.1.2 `conversation_switched` 与 `conversation_created`
+
+切换或新建成功后返回 `conversationId`、`conversationTitle` 和 `transcript`。`transcript` 只包含可显示的 user/assistant 文本；完整 tool messages 仍由 Core 从持久化历史恢复给模型。TUI 收到事件后替换当前聊天区并关闭选择面板。
+
+### 7.1.3 `conversation_updated`
+
+首次用户消息使默认标题发生变化时发送，payload 包含 `conversationId` 和新的 `conversationTitle`，TUI 据此刷新顶部标题。
 
 ### 7.2 `turn_started`
 
@@ -684,4 +742,3 @@ Core 已停止接收任务、清理子进程和刷新日志后发送，随后以
 - Core 异常退出后 TUI 正确进入失败状态。
 - 未知可选字段和未知事件不会导致崩溃。
 - 每个 turn 恰好产生一个终态事件。
-

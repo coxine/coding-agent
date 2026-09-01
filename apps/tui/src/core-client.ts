@@ -72,6 +72,21 @@ export class CoreClient extends EventEmitter {
 		);
 	}
 
+	listSessions(): void {
+		if (!this.sessionId) throw new Error('Agent Core is not initialized');
+		this.send(message('list_sessions', {}, {sessionId: this.sessionId}));
+	}
+
+	switchSession(conversationId: string): void {
+		if (!this.sessionId) throw new Error('Agent Core is not initialized');
+		this.send(message('switch_session', {conversationId}, {sessionId: this.sessionId}));
+	}
+
+	createSession(): void {
+		if (!this.sessionId) throw new Error('Agent Core is not initialized');
+		this.send(message('create_session', {}, {sessionId: this.sessionId}));
+	}
+
 	shutdown(): void {
 		if (!this.process || this.process.killed) return;
 		if (this.sessionId) this.send(message('shutdown', {}, {sessionId: this.sessionId}));
@@ -116,4 +131,3 @@ export class CoreClient extends EventEmitter {
 function sanitize(text: string): string {
 	return text.replaceAll(/\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
-

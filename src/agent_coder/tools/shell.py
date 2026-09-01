@@ -178,6 +178,8 @@ def _ensure_command_scope(command: str, workspace_root) -> None:
     for index, token in enumerate(tokens):
         if token == ".." or token.startswith("../") or "/../" in token or token.startswith("~"):
             raise ToolFailure("permission_denied", "command references a path outside the workspace")
+        if ".coding-agent" in token.lower():
+            raise ToolFailure("permission_denied", "command references protected session history")
         if not token.startswith("/"):
             continue
         candidate = os.path.realpath(token)

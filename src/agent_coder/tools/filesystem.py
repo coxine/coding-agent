@@ -180,7 +180,16 @@ def search_text(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
     except re.error as exc:
         raise ToolFailure("invalid_arguments", f"invalid regular expression: {exc}") from exc
 
-    ignored = {".git", ".venv", "node_modules", "dist", "build", "__pycache__", ".pytest_cache"}
+    ignored = {
+        ".git",
+        ".coding-agent",
+        ".venv",
+        "node_modules",
+        "dist",
+        "build",
+        "__pycache__",
+        ".pytest_cache",
+    }
     candidates = [root] if root.is_file() else root.rglob("*")
     matches: list[dict[str, Any]] = []
     paths_found: list[str] = []
@@ -278,4 +287,3 @@ def write_file(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
         truncated=diff_truncated,
         changed_files=[display],
     )
-

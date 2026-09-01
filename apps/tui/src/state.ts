@@ -28,9 +28,21 @@ export type Approval = {
 	arguments: Record<string, unknown>;
 };
 
+export type SessionSummary = {
+	id: string;
+	title: string;
+	createdAt: string;
+	updatedAt: string;
+	messageCount: number;
+};
+
 export type AppState = {
 	connection: 'starting' | 'ready' | 'fatal' | 'closed';
 	sessionId?: string;
+	conversationId?: string;
+	conversationTitle: string;
+	sessions: SessionSummary[];
+	sessionPickerOpen: boolean;
 	model: string;
 	workspaceRoot: string;
 	status: string;
@@ -46,7 +58,8 @@ export type Action =
 	| {type: 'core_event'; event: CoreEvent}
 	| {type: 'submitted'; turnId: string; text: string}
 	| {type: 'fatal'; message: string}
-	| {type: 'notice'; message: string; level?: 'info' | 'error'};
+	| {type: 'notice'; message: string; level?: 'info' | 'error'}
+	| {type: 'close_session_picker'};
 
 export function initialState(workspaceRoot: string, model: string): AppState {
 	return {
@@ -54,6 +67,9 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 		model,
 		workspaceRoot,
 		status: 'Starting Agent Core',
+		conversationTitle: 'New session',
+		sessions: [],
+		sessionPickerOpen: false,
 		step: 0,
 		items: [],
 		tools: {},
@@ -61,6 +77,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 }
 
 export function reducer(state: AppState, action: Action): AppState {
+	if (action.type === 'close_session_picker') return {...state, sessionPickerOpen: false};
 	if (action.type === 'fatal') {
 		return {...state, connection: 'fatal', status: 'Failed', fatalError: action.message};
 	}
@@ -89,7 +106,35 @@ export function reducer(state: AppState, action: Action): AppState {
 				sessionId: event.sessionId,
 				model: String(payload.model ?? state.model),
 				workspaceRoot: String(payload.workspaceRoot ?? state.workspaceRoot),
+				conversationId: String(payload.conversationId ?? ''),
+				conversationTitle: String(payload.conversationTitle ?? 'New session'),
+				items: transcriptItems(payload.transcript),
 				status: 'Ready',
+			};
+		case 'sessions_listed':
+			return {
+				...state,
+				conversationId: String(payload.activeConversationId ?? state.conversationId ?? ''),
+				sessions: sessionSummaries(payload.sessions),
+				sessionPickerOpen: true,
+			};
+		case 'conversation_switched':
+		case 'conversation_created':
+			return {
+				...state,
+				conversationId: String(payload.conversationId ?? ''),
+				conversationTitle: String(payload.conversationTitle ?? 'New session'),
+				items: transcriptItems(payload.transcript),
+				tools: {},
+				step: 0,
+				status: 'Ready',
+				sessionPickerOpen: false,
+			};
+		case 'conversation_updated':
+			return {
+				...state,
+				conversationId: String(payload.conversationId ?? state.conversationId ?? ''),
+				conversationTitle: String(payload.conversationTitle ?? state.conversationTitle),
 			};
 		case 'agent_status':
 			return {...state, status: prettyStatus(String(payload.status ?? 'running')), step: Number(payload.step ?? state.step)};
@@ -227,4 +272,32 @@ function summarizeTool(name: string, args: Record<string, unknown>): string {
 function errorText(payload: Record<string, unknown>): string {
 	const error = asRecord(payload.error);
 	return String(error.message ?? 'Task failed');
+}
+
+function transcriptItems(value: unknown): TranscriptItem[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((entry, index): TranscriptItem[] => {
+		const record = asRecord(entry);
+		const role = record.role;
+		const text = record.content;
+		if (typeof text !== 'string' || (role !== 'user' && role !== 'assistant')) return [];
+		return role === 'user'
+			? [{kind: 'user', id: `history-user-${index}`, text}]
+			: [{kind: 'assistant', id: `history-assistant-${index}`, text, finished: true}];
+	});
+}
+
+function sessionSummaries(value: unknown): SessionSummary[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap(entry => {
+		const record = asRecord(entry);
+		if (typeof record.id !== 'string' || typeof record.title !== 'string') return [];
+		return [{
+			id: record.id,
+			title: record.title,
+			createdAt: String(record.createdAt ?? ''),
+			updatedAt: String(record.updatedAt ?? ''),
+			messageCount: Number(record.messageCount ?? 0),
+		}];
+	});
 }

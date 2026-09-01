@@ -9,6 +9,7 @@ from .agent import Agent
 from .config import AgentConfig, ConfigurationError
 from .model import OpenAICompatibleClient
 from .protocol import PROTOCOL_VERSION, ProtocolEmitter, new_id, validate_envelope
+from .sessions import Conversation, SessionStore
 from .tools import ToolRegistry
 
 
@@ -24,6 +25,8 @@ class CoreServer:
         self.session_id: str | None = None
         self.config: AgentConfig | None = None
         self.agent: Agent | None = None
+        self.session_store: SessionStore | None = None
+        self.conversation: Conversation | None = None
         self.active_turn_id: str | None = None
         self.active_task: asyncio.Task[None] | None = None
         self.approvals: dict[str, asyncio.Future[bool]] = {}
@@ -69,6 +72,12 @@ class CoreServer:
             await self._approval_response(message)
         elif message_type == "cancel_turn":
             await self._cancel_turn(message)
+        elif message_type == "list_sessions":
+            await self._list_sessions(message)
+        elif message_type == "switch_session":
+            await self._switch_session(message)
+        elif message_type == "create_session":
+            await self._create_session(message)
         elif message_type == "shutdown":
             await self._shutdown(emit_complete=True)
         else:
@@ -90,28 +99,117 @@ class CoreServer:
 
         self.session_id = new_id("sess")
         self.config = config
-        model = OpenAICompatibleClient(
-            api_key=config.api_key, base_url=config.base_url, model=config.model
-        )
-        tools = ToolRegistry(config.workspace_root, command_timeout_ms=config.command_timeout_ms)
-        self.agent = Agent(
-            config=config,
-            session_id=self.session_id,
-            emitter=self.emitter,
-            model=model,
-            tools=tools,
-            request_approval=self._request_approval,
-        )
+        self.session_store = SessionStore(config.workspace_root)
+        self.conversation = self.session_store.latest_or_create()
+        self.agent = self._build_agent(self.conversation)
         await self.emitter.emit(
             "initialized",
             {
                 "workspaceRoot": str(config.workspace_root),
                 "model": config.model,
+                "conversationId": self.conversation.id,
+                "conversationTitle": self.conversation.title,
+                "transcript": self.session_store.transcript(self.conversation.messages),
                 "capabilities": {
                     "streaming": True,
                     "toolCalling": True,
                     "approvals": True,
+                    "sessions": True,
                 },
+            },
+            session_id=self.session_id,
+        )
+
+    def _build_agent(self, conversation: Conversation) -> Agent:
+        assert self.config is not None and self.session_id is not None
+        model = OpenAICompatibleClient(
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            model=self.config.model,
+        )
+        tools = ToolRegistry(
+            self.config.workspace_root, command_timeout_ms=self.config.command_timeout_ms
+        )
+
+        async def persist(messages: list[dict[str, Any]]) -> None:
+            if self.session_store is not None and self.conversation is conversation:
+                previous_title = conversation.title
+                await asyncio.to_thread(self.session_store.update_messages, conversation, messages)
+                if conversation.title != previous_title:
+                    await self.emitter.emit(
+                        "conversation_updated",
+                        {
+                            "conversationId": conversation.id,
+                            "conversationTitle": conversation.title,
+                        },
+                        session_id=self.session_id,
+                    )
+
+        return Agent(
+            config=self.config,
+            session_id=self.session_id,
+            emitter=self.emitter,
+            model=model,
+            tools=tools,
+            request_approval=self._request_approval,
+            history_messages=conversation.messages,
+            persist_messages=persist,
+        )
+
+    async def _list_sessions(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if self.session_store is None or self.conversation is None:
+            return
+        sessions = await asyncio.to_thread(self.session_store.list)
+        await self.emitter.emit(
+            "sessions_listed",
+            {"activeConversationId": self.conversation.id, "sessions": sessions},
+            session_id=self.session_id,
+        )
+
+    async def _switch_session(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message) or not await self._can_change_conversation():
+            return
+        conversation_id = message["payload"].get("conversationId")
+        if not isinstance(conversation_id, str):
+            await self._error("invalid_message", "payload.conversationId must be a string")
+            return
+        assert self.session_store is not None
+        try:
+            conversation = await asyncio.to_thread(self.session_store.load, conversation_id)
+        except ValueError as exc:
+            await self._error("unknown_conversation", str(exc))
+            return
+        await asyncio.to_thread(
+            self.session_store.update_messages, conversation, conversation.messages
+        )
+        self.conversation = conversation
+        self.agent = self._build_agent(conversation)
+        await self._emit_conversation("conversation_switched")
+
+    async def _create_session(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message) or not await self._can_change_conversation():
+            return
+        assert self.session_store is not None
+        self.conversation = await asyncio.to_thread(self.session_store.create)
+        self.agent = self._build_agent(self.conversation)
+        await self._emit_conversation("conversation_created")
+
+    async def _can_change_conversation(self) -> bool:
+        if self.active_task and not self.active_task.done():
+            await self._error("turn_already_running", "cannot change sessions while a turn is running")
+            return False
+        return True
+
+    async def _emit_conversation(self, event_type: str) -> None:
+        assert self.session_store is not None and self.conversation is not None
+        await self.emitter.emit(
+            event_type,
+            {
+                "conversationId": self.conversation.id,
+                "conversationTitle": self.conversation.title,
+                "transcript": self.session_store.transcript(self.conversation.messages),
             },
             session_id=self.session_id,
         )

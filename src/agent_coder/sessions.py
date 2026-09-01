@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from .protocol import new_id
+
+
+SESSION_VERSION = 1
+_ID_PATTERN = re.compile(r"^conv_[0-9a-f]{32}$")
+_ALLOWED_ROLES = {"user", "assistant", "tool"}
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+@dataclass(slots=True)
+class Conversation:
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: list[dict[str, Any]]
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+            "messageCount": sum(1 for message in self.messages if message.get("role") == "user"),
+        }
+
+
+class SessionStore:
+    def __init__(self, workspace_root: Path) -> None:
+        self.directory = workspace_root / ".coding-agent" / "sessions"
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.directory.parent, 0o700)
+        os.chmod(self.directory, 0o700)
+
+    def create(self) -> Conversation:
+        timestamp = _now()
+        conversation = Conversation(
+            id=new_id("conv"),
+            title="New session",
+            created_at=timestamp,
+            updated_at=timestamp,
+            messages=[],
+        )
+        self.save(conversation)
+        return conversation
+
+    def latest_or_create(self) -> Conversation:
+        conversations = self.list()
+        return self.load(conversations[0]["id"]) if conversations else self.create()
+
+    def list(self) -> list[dict[str, Any]]:
+        conversations: list[Conversation] = []
+        for path in self.directory.glob("conv_*.json"):
+            try:
+                conversations.append(self._read(path))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        conversations.sort(key=lambda item: item.updated_at, reverse=True)
+        return [conversation.summary() for conversation in conversations]
+
+    def load(self, conversation_id: str) -> Conversation:
+        if not _ID_PATTERN.fullmatch(conversation_id):
+            raise ValueError("invalid conversation id")
+        path = self.directory / f"{conversation_id}.json"
+        if not path.is_file():
+            raise ValueError("conversation does not exist")
+        return self._read(path)
+
+    def update_messages(
+        self, conversation: Conversation, messages: list[dict[str, Any]]
+    ) -> Conversation:
+        conversation.messages = deepcopy(messages)
+        conversation.updated_at = _now()
+        conversation.title = self._title(messages)
+        self.save(conversation)
+        return conversation
+
+    def save(self, conversation: Conversation) -> None:
+        if not _ID_PATTERN.fullmatch(conversation.id):
+            raise ValueError("invalid conversation id")
+        payload = {
+            "version": SESSION_VERSION,
+            "id": conversation.id,
+            "title": conversation.title,
+            "createdAt": conversation.created_at,
+            "updatedAt": conversation.updated_at,
+            "messages": conversation.messages,
+        }
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{conversation.id}.", suffix=".tmp", dir=self.directory
+        )
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            target = self.directory / f"{conversation.id}.json"
+            os.replace(temporary_name, target)
+            os.chmod(target, 0o600)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+
+    @staticmethod
+    def transcript(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+        result: list[dict[str, str]] = []
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content")
+            if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+                result.append({"role": role, "content": content})
+        return result
+
+    def _read(self, path: Path) -> Conversation:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("version") != SESSION_VERSION:
+            raise ValueError("unsupported session file")
+        conversation_id = data.get("id")
+        if not isinstance(conversation_id, str) or not _ID_PATTERN.fullmatch(conversation_id):
+            raise ValueError("invalid conversation id")
+        if path.name != f"{conversation_id}.json":
+            raise ValueError("conversation id does not match filename")
+        messages = data.get("messages")
+        if not isinstance(messages, list) or not all(self._valid_message(item) for item in messages):
+            raise ValueError("invalid conversation messages")
+        title = data.get("title")
+        created_at = data.get("createdAt")
+        updated_at = data.get("updatedAt")
+        if not all(isinstance(value, str) and value for value in (title, created_at, updated_at)):
+            raise ValueError("invalid conversation metadata")
+        return Conversation(conversation_id, title, created_at, updated_at, deepcopy(messages))
+
+    @staticmethod
+    def _valid_message(message: Any) -> bool:
+        return (
+            isinstance(message, dict)
+            and message.get("role") in _ALLOWED_ROLES
+            and (message.get("content") is None or isinstance(message.get("content"), str))
+        )
+
+    @staticmethod
+    def _title(messages: list[dict[str, Any]]) -> str:
+        for message in messages:
+            if message.get("role") == "user" and isinstance(message.get("content"), str):
+                normalized = " ".join(message["content"].split())
+                if normalized:
+                    return normalized[:57] + "..." if len(normalized) > 60 else normalized
+        return "New session"

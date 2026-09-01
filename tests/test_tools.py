@@ -25,6 +25,8 @@ def test_sensitive_paths_are_forbidden(tmp_path) -> None:
     with pytest.raises(ToolFailure, match="forbidden"):
         paths.resolve(".env", for_creation=True)
     assert paths.resolve(".env.example", for_creation=True) == tmp_path / ".env.example"
+    with pytest.raises(ToolFailure, match="forbidden"):
+        paths.resolve(".coding-agent/sessions/conv_secret.json")
 
 
 def test_symlink_cannot_escape_workspace(tmp_path) -> None:
@@ -124,6 +126,18 @@ async def test_run_command_rejects_absolute_path_outside_workspace(tmp_path) -> 
     registry = ToolRegistry(tmp_path)
     result, _ = await registry.execute(
         "run_command", {"command": "cat /etc/passwd"}, on_output=no_output
+    )
+    assert not result.ok
+    assert result.error_code == "permission_denied"
+
+
+@pytest.mark.asyncio
+async def test_run_command_cannot_read_session_history(tmp_path) -> None:
+    registry = ToolRegistry(tmp_path)
+    result, _ = await registry.execute(
+        "run_command",
+        {"command": "cat .coding-agent/sessions/conv_secret.json"},
+        on_output=no_output,
     )
     assert not result.ok
     assert result.error_code == "permission_denied"

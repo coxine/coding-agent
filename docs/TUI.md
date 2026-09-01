@@ -115,6 +115,10 @@ Agent 正在请求模型、输出文本或执行普通工具。输入框保留�
 
 Core 无法启动或已经异常退出。显示错误摘要，并允许退出或重新启动 Core；第一版不在此状态自动重试。
 
+### 5.6 `session_picker`
+
+用户在 Composer 输入 `/session` 后进入。面板列出当前工作区的历史对话，显示标题、更新时间、turn 数和当前项标记。方向键移动，Enter 切换，`N` 新建，Esc 关闭。Agent 运行或等待批准时不能打开或切换。
+
 ## 6. 组件结构
 
 ```text
@@ -132,6 +136,7 @@ App
 │   └── SystemNotice
 ├── Composer
 ├── ApprovalDialog
+├── SessionPicker
 ├── DetailsPanel
 └── Footer
 ```
@@ -158,7 +163,8 @@ App
 - 默认自动跟随最新内容。
 - 用户主动向上滚动后暂停自动跟随，并提示存在新内容。
 - turn 完成后仍保留当前 session 的历史。
-- 第一版只在内存中保存 UI 历史。
+- 初始化或切换对话时，用 Core 提供的 transcript 重建用户与 Agent 文本。
+- 历史工具消息不重新生成工具卡片；它们只保留在 Core 的模型上下文中。
 
 ### 6.4 `Composer`
 
@@ -286,6 +292,11 @@ App
 | 快捷键 | 作用 | 可用模式 |
 | --- | --- | --- |
 | `Enter` | 提交输入 | `composing` |
+| `/session` | 打开对话选择面板 | `composing` |
+| `↑` / `↓` | 选择历史对话 | `session_picker` |
+| `Enter` | 切换到选中对话 | `session_picker` |
+| `N` | 新建并切换到空白对话 | `session_picker` |
+| `Esc` | 关闭面板 | `session_picker` |
 | `Ctrl+Enter` | 插入换行 | `composing` |
 | `Esc` | 取消当前 turn；关闭详情 | `running` / `details` |
 | `Ctrl+C` | 第一次取消活动 turn，空闲时退出 | 全局 |

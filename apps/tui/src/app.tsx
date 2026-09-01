@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {CoreClient} from './core-client.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
-import {Approval, initialState, reducer, ToolView, TranscriptItem} from './state.js';
+import {Approval, initialState, reducer, SessionSummary, ToolView, TranscriptItem} from './state.js';
 
 type AppProps = {
 	repositoryRoot: string;
@@ -19,6 +19,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	const [input, setInput] = useState('');
 	const [approvalChoice, setApprovalChoice] = useState<'allow' | 'deny'>('deny');
 	const [cancelling, setCancelling] = useState(false);
+	const [sessionChoice, setSessionChoice] = useState(0);
 	const clientRef = useRef<CoreClient | null>(null);
 
 	useEffect(() => {
@@ -49,6 +50,12 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 		if (state.pendingApproval) setApprovalChoice('deny');
 	}, [state.pendingApproval?.toolCallId]);
 
+	useEffect(() => {
+		if (!state.sessionPickerOpen) return;
+		const activeIndex = state.sessions.findIndex(session => session.id === state.conversationId);
+		setSessionChoice(activeIndex < 0 ? 0 : activeIndex);
+	}, [state.conversationId, state.sessionPickerOpen, state.sessions]);
+
 	const canSubmit = state.connection === 'ready' && !state.activeTurnId;
 
 	useInput((character, key) => {
@@ -60,6 +67,15 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			if (character.toLowerCase() === 'n' || key.rightArrow || key.tab) setApprovalChoice('deny');
 			if (key.return) client.approve(state.pendingApproval.toolCallId, approvalChoice === 'allow');
 			if (key.escape) client.approve(state.pendingApproval.toolCallId, false);
+			return;
+		}
+
+		if (state.sessionPickerOpen) {
+			if (key.escape) dispatch({type: 'close_session_picker'});
+			if (key.upArrow) setSessionChoice(value => Math.max(0, value - 1));
+			if (key.downArrow) setSessionChoice(value => Math.min(state.sessions.length - 1, value + 1));
+			if (character.toLowerCase() === 'n') client.createSession();
+			if (key.return && state.sessions[sessionChoice]) client.switchSession(state.sessions[sessionChoice].id);
 			return;
 		}
 
@@ -92,6 +108,11 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			}
 			const text = input.trim();
 			if (!text) return;
+			if (text === '/session') {
+				client.listSessions();
+				setInput('');
+				return;
+			}
 			const turnId = `turn_${randomUUID().replaceAll('-', '')}`;
 			try {
 				client.submit(text, turnId);
@@ -111,7 +132,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 
 	return (
 		<Box flexDirection="column" paddingX={1}>
-			<Header model={state.model} workspace={state.workspaceRoot} status={cancelling ? 'Cancelling…' : state.status} step={state.step} />
+			<Header model={state.model} workspace={state.workspaceRoot} conversation={state.conversationTitle} status={cancelling ? 'Cancelling…' : state.status} step={state.step} />
 			<Box flexDirection="column" marginY={1}>
 				{state.items.length === 0 ? (
 					<Text dimColor>Describe a coding task. The agent can inspect, edit, and test this workspace.</Text>
@@ -121,6 +142,8 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			</Box>
 			{state.pendingApproval ? (
 				<ApprovalDialog approval={state.pendingApproval} choice={approvalChoice} />
+			) : state.sessionPickerOpen ? (
+				<SessionPicker sessions={state.sessions} activeId={state.conversationId} choice={sessionChoice} />
 			) : state.connection === 'fatal' ? (
 				<Box borderStyle="round" borderColor="red" paddingX={1} flexDirection="column">
 					<Text bold color="red">Agent Core failed</Text>
@@ -129,16 +152,16 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			) : (
 				<Composer value={input} enabled={canSubmit} />
 			)}
-			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} />
+			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} sessions={state.sessionPickerOpen} />
 		</Box>
 	);
 }
 
-function Header({model, workspace, status, step}: {model: string; workspace: string; status: string; step: number}): React.ReactNode {
+function Header({model, workspace, conversation, status, step}: {model: string; workspace: string; conversation: string; status: string; step: number}): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">coding-agent</Text>
-			<Text dimColor>{model || 'model not configured'} • {shortPath(workspace)} • {step ? `step ${step} • ` : ''}{status}</Text>
+			<Text dimColor>{model || 'model not configured'} • {shortPath(workspace)} • {conversation} • {step ? `step ${step} • ` : ''}{status}</Text>
 		</Box>
 	);
 }
@@ -189,6 +212,20 @@ function ApprovalDialog({approval, choice}: {approval: Approval; choice: 'allow'
 	);
 }
 
+function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]; activeId?: string; choice: number}): React.ReactNode {
+	return (
+		<Box flexDirection="column" borderStyle="double" borderColor="magenta" paddingX={1}>
+			<Text bold color="magenta">Sessions</Text>
+			{sessions.map((session, index) => (
+				<Text key={session.id} inverse={index === choice}>
+					{index === choice ? '› ' : '  '}{session.id === activeId ? '● ' : '  '}{session.title} <Text dimColor>({session.messageCount} turns • {formatDate(session.updatedAt)})</Text>
+				</Text>
+			))}
+			<Text dimColor>↑/↓ select • enter switch • n new • esc close</Text>
+		</Box>
+	);
+}
+
 function Composer({value, enabled}: {value: string; enabled: boolean}): React.ReactNode {
 	return (
 		<Box borderStyle="round" borderColor={enabled ? 'blue' : 'gray'} paddingX={1}>
@@ -198,13 +235,20 @@ function Composer({value, enabled}: {value: string; enabled: boolean}): React.Re
 	);
 }
 
-function Footer({active, approval}: {active: boolean; approval: boolean}): React.ReactNode {
+function Footer({active, approval, sessions}: {active: boolean; approval: boolean; sessions: boolean}): React.ReactNode {
 	const text = approval
 		? 'y allow • n deny • enter confirm • esc deny'
+		: sessions
+			? '↑/↓ select • enter switch • n new • esc close'
 		: active
 			? 'esc cancel • ctrl+c cancel'
-			: 'enter send • ctrl+enter newline • ctrl+c exit';
+			: 'enter send • /session history • ctrl+enter newline • ctrl+c exit';
 	return <Box marginTop={1}><Text dimColor>{text}</Text></Box>;
+}
+
+function formatDate(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function Spinner(): React.ReactNode {

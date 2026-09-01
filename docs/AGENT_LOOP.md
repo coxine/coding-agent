@@ -4,22 +4,18 @@
 
 本文定义 Python Agent Core 如何组织消息、调用模型、解析流式 tool calling、执行工具、处理上下文、判断终止并恢复错误。该循环是编程智能体最重要的自行实现部分。
 
-第一版只支持单会话内串行 turn：用户完成一个任务后，可以在同一上下文中继续追问或提交下一项任务，但不能并行执行多个任务。
+第一版只支持单个活动对话内串行 turn：用户完成一个任务后，可以在同一上下文中继续追问，也可以在 Agent 空闲时切换其他持久化对话，但不能并行执行多个任务。
 
 ## 2. 核心概念
 
-### 2.1 Session
+### 2.1 Core Session 与 Conversation
 
-一次 Agent Core 进程生命周期对应一个 session。Session 保存：
+一次 Agent Core 进程生命周期对应协议中的 `sessionId`。一个工作区可以保存多个 Conversation，每个 Conversation 有独立 `conversationId` 和消息历史。Core Session 保存运行时配置、工具注册表与当前活动 Conversation；Conversation 保存：
 
-- 工作区根目录。
-- 模型和非敏感配置。
-- 工具注册表。
 - 对话消息历史。
-- 已完成 turn 的概要统计。
-- 当前活动 turn，可为空。
+- 标题、创建时间和更新时间。
 
-第一版不要求 Core 退出后恢复 session。
+Conversation 持久化在工作区 `.coding-agent/sessions/`。启动时加载更新时间最新的一项；恢复时使用当前配置重新生成 system message，再追加保存的 user、assistant 与 tool 消息。持久化点包括用户消息加入后、一个 assistant tool-call 批次取得全部 tool result 后，以及最终 assistant 消息完成后，避免写入缺少对应 tool result 的中间结构。
 
 ### 2.2 Turn
 
@@ -102,6 +98,10 @@ TurnController
 ### `EventEmitter`
 
 将内部状态转为 `PROTOCOL.md` 定义的 JSON Lines 事件。
+
+### `SessionStore`
+
+校验、列举、加载并原子保存 Conversation。它还生成供 TUI 重建聊天区使用的 user/assistant 文本投影；工具消息保留在模型历史中，但不会展开为旧工具卡片。
 
 ## 4. 状态机
 
@@ -569,4 +569,3 @@ Core 记录以下非敏感信息：
 - 模型能识别并调用一个读取工具。
 - tool result 能正确回传并得到最终回答。
 - 流式文本和原生 tool call 能被当前模型适配器解析。
-

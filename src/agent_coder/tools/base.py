@@ -47,6 +47,7 @@ class ToolFailure(Exception):
 class WorkspacePaths:
     _forbidden_names = {
         ".git",
+        ".coding-agent",
         "id_rsa",
         "id_ed25519",
         "credentials",
@@ -120,4 +121,3 @@ def optional_int(
             "invalid_arguments", f"{key} must be an integer between {minimum} and {maximum}"
         )
     return value
-
