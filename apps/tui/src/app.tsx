@@ -280,11 +280,19 @@ function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: n
 	);
 }
 
-function Composer({value, enabled}: {value: string; enabled: boolean}): React.ReactNode {
+export function Composer({value, enabled}: {value: string; enabled: boolean}): React.ReactNode {
 	return (
 		<Box borderStyle="round" borderColor={enabled ? 'blue' : 'gray'} paddingX={1}>
 			<Text color={enabled ? 'blue' : 'gray'}>{'> '}</Text>
-			<Text>{enabled ? value || 'Type a task…' : 'Agent is working…'}{enabled && <Text inverse> </Text>}</Text>
+			{enabled ? (
+				value ? (
+					<Text>{value}<Text inverse> </Text></Text>
+				) : (
+					<Text><Text inverse> </Text><Text dimColor>Type a task…</Text></Text>
+				)
+			) : (
+				<Text dimColor>Agent is working…</Text>
+			)}
 		</Box>
 	);
 }
