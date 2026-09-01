@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 import {randomUUID} from 'node:crypto';
 import {CoreClient} from './core-client.js';
+import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
 import {Approval, initialState, reducer, ToolView, TranscriptItem} from './state.js';
 
@@ -149,7 +150,7 @@ function Transcript({item, tool}: {item: TranscriptItem; tool?: ToolView}): Reac
 	if (item.kind === 'assistant') {
 		if (!item.text && !item.finished) return <Box marginBottom={1}><Text color="cyan">Agent </Text><Spinner /></Box>;
 		if (!item.text) return null;
-		return <Box flexDirection="column" marginBottom={1}><Text bold color="cyan">Agent</Text><Text>{item.text}</Text></Box>;
+		return <Box flexDirection="column" marginBottom={1}><Text bold color="cyan">Agent</Text><MarkdownText>{item.text}</MarkdownText></Box>;
 	}
 	if (item.kind === 'notice') {
 		return <Box marginBottom={1}><Text color={item.level === 'error' ? 'red' : 'yellow'}>{item.level === 'error' ? 'Error' : 'Info'}: {item.text}</Text></Box>;
