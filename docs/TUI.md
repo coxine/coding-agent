@@ -228,8 +228,10 @@ App
 - 标记为 `Agent`。
 - 流式增量追加到当前 assistant message。
 - 支持受控的基础 Markdown：标题、粗体、斜体、删除线、行内代码、代码块、表格、列表、引用、分隔线和链接文本。
-- fenced code block 根据语言标记进行 ANSI 语法高亮；未标语言可自动识别，未知语言或高亮失败时回退到原始文本。
+- Markdown 由 `markdansi` 的 GFM parser 和终端 renderer 处理，不在 TUI 内自行维护 Markdown 语法解析器。
+- fenced code block 根据语言标记进行 ANSI 语法高亮；未标语言、未知语言或高亮失败时回退到原始文本。
 - GitHub 风格表格支持左对齐、居中和右对齐，并按终端显示宽度对齐中英文字符。
+- 渲染宽度跟随 Ink 窗口宽度；表格默认截断过长单元格，代码块默认换行。
 - 流式输出中的未闭合 Markdown 标记按普通文本显示，后续增量补全后再应用样式。
 - 不解析 HTML，不执行链接、代码或 Markdown 中的任何控制指令。
 - 第一版不渲染 HTML、图片、跨行/跨列表格或单元格内的块级 Markdown。

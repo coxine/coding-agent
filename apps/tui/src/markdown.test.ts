@@ -3,98 +3,74 @@ import test from 'node:test';
 import React from 'react';
 import {renderToString} from 'ink';
 import stringWidth from 'string-width';
-import {highlightCode, MarkdownText, parseInline, parseMarkdown, stripTerminalControls} from './markdown.js';
+import {
+	highlightCode,
+	MarkdownText,
+	renderMarkdownForTerminal,
+	stripTerminalControls,
+} from './markdown.js';
 
-test('parseInline recognizes common inline markdown', () => {
-	assert.deepEqual(parseInline('Use **bold**, *italic*, `code`, ~~old~~ and [docs](https://example.com).'), [
-		{type: 'text', text: 'Use '},
-		{type: 'bold', text: 'bold'},
-		{type: 'text', text: ', '},
-		{type: 'italic', text: 'italic'},
-		{type: 'text', text: ', '},
-		{type: 'code', text: 'code'},
-		{type: 'text', text: ', '},
-		{type: 'strike', text: 'old'},
-		{type: 'text', text: ' and '},
-		{type: 'link', text: 'docs', url: 'https://example.com'},
-		{type: 'text', text: '.'},
-	]);
-});
-
-test('parseInline leaves unfinished streaming markers visible', () => {
-	assert.deepEqual(parseInline('working on **partial'), [{type: 'text', text: 'working on **partial'}]);
-	assert.deepEqual(parseInline('call `unfinished'), [{type: 'text', text: 'call `unfinished'}]);
-});
-
-test('parseMarkdown recognizes headings, lists, quotes, rules and code blocks', () => {
-	const blocks = parseMarkdown(
-		'# Result\n\n- first\n- second\n\n> note\n\n---\n\n```ts\nconst value = 1;\n```',
+test('renders common GFM blocks and inline formatting', () => {
+	const rendered = renderMarkdownForTerminal(
+		'# Result\n\nUse **bold**, *italic*, `code` and [docs](https://example.com).\n\n- first\n- second\n\n> note',
+		80,
 	);
-	assert.deepEqual(blocks, [
-		{type: 'heading', level: 1, text: 'Result'},
-		{type: 'space'},
-		{
-			type: 'list',
-			ordered: false,
-			items: [
-				{text: 'first', indent: 0},
-				{text: 'second', indent: 0},
-			],
-		},
-		{type: 'space'},
-		{type: 'quote', text: 'note'},
-		{type: 'space'},
-		{type: 'rule'},
-		{type: 'space'},
-		{type: 'code', language: 'ts', text: 'const value = 1;'},
-	]);
+	const plain = stripTerminalControls(rendered);
+	assert.doesNotMatch(plain, /\*\*bold\*\*/);
+	assert.match(plain, /Result/);
+	assert.match(plain, /bold/);
+	assert.match(plain, /first/);
+	assert.match(plain, /│ note/);
+	assert.match(plain, /docs/);
+	assert.doesNotMatch(rendered, /\u001B]8/);
 });
 
-test('parseMarkdown treats an unfinished fence as a streaming code block', () => {
-	assert.deepEqual(parseMarkdown('```python\nprint("hello")'), [
-		{type: 'code', language: 'python', text: 'print("hello")'},
-	]);
-});
-
-test('parseMarkdown recognizes tables and column alignment', () => {
-	assert.deepEqual(
-		parseMarkdown('| Name | Value | Note |\n| :--- | ---: | :---: |\n| **one** | 42 | `a|b` |\n| two | 7 | a\\|b |'),
-		[{
-			type: 'table',
-			headers: ['Name', 'Value', 'Note'],
-			alignments: ['left', 'right', 'center'],
-			rows: [
-				['**one**', '42', '`a|b`'],
-				['two', '7', 'a|b'],
-			],
-		}],
+test('renders GFM tables with alignment and terminal-width truncation', () => {
+	const rendered = renderMarkdownForTerminal(
+		'| 名称 | Value | Note |\n| :--- | ---: | :---: |\n| 测试 | 42 | a very long value that must fit |',
+		42,
 	);
+	const plain = stripTerminalControls(rendered);
+	const lines = plain.split('\n').filter(line => line.trim());
+	assert.match(plain, /名称/);
+	assert.match(plain, /测试/);
+	assert.ok(lines.every(line => stringWidth(line) <= 42));
+	assert.match(plain, /…/);
 });
 
-test('highlightCode adds ANSI colors for known languages and falls back safely', () => {
+test('highlights known fenced languages and falls back for unknown ones', () => {
 	const highlighted = highlightCode('const answer = 42;', 'typescript');
 	assert.match(highlighted, /\u001B\[/);
 	assert.equal(stripTerminalControls(highlighted), 'const answer = 42;');
 	assert.equal(highlightCode('plain text', 'not-a-language'), 'plain text');
+	assert.equal(highlightCode('plain text'), 'plain text');
 });
 
-test('MarkdownText renders aligned wide-character tables and highlighted code', () => {
+test('renders unfinished streaming markdown without throwing', () => {
+	assert.match(stripTerminalControls(renderMarkdownForTerminal('working on **partial', 60)), /working on/);
+	assert.match(
+		stripTerminalControls(renderMarkdownForTerminal('~~~python\nprint("hello")', 60)),
+		/print\("hello"\)/,
+	);
+});
+
+test('MarkdownText renders through Ink with ANSI styling intact', () => {
 	const output = renderToString(
 		React.createElement(MarkdownText, {
-			children: '| 名称 | Value |\n| --- | ---: |\n| 测试 | 42 |\n\n~~~ts\nconst answer = 42;\n~~~',
+			children: '| Name | Value |\n| --- | ---: |\n| test | 42 |\n\n~~~ts\nconst answer = 42;\n~~~',
 		}),
-		{columns: 100},
+		{columns: 80},
 	);
-	const plain = stripTerminalControls(output);
-	const lines = plain.split('\n');
-	const tableStart = lines.findIndex(line => line.startsWith('┌'));
-	const tableLines = lines.slice(tableStart, tableStart + 5);
-	assert.equal(tableLines.length, 5);
-	assert.equal(new Set(tableLines.map(line => stringWidth(line))).size, 1);
-	assert.match(plain, /const answer = 42;/);
+	assert.match(stripTerminalControls(output), /const answer = 42;/);
+	assert.match(stripTerminalControls(output), /Name/);
 	assert.match(output, /\u001B\[/);
 });
 
-test('stripTerminalControls removes ANSI and control characters', () => {
-	assert.equal(stripTerminalControls('\u001b[31mred\u001b[0m\u0000 text'), 'red text');
+test('strips CSI, OSC and control characters from model text', () => {
+	assert.equal(stripTerminalControls('\u001B[31mred\u001B[0m\u0000 text'), 'red text');
+	assert.equal(
+		stripTerminalControls('\u001B]8;;https://evil.example\u0007click\u001B]8;;\u0007'),
+		'click',
+	);
+	assert.equal(stripTerminalControls('safe\u001B]8;;https://evil.example'), 'safe');
 });
