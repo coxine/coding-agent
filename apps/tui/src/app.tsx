@@ -236,8 +236,8 @@ function ApprovalDialog({approval, choice}: {approval: Approval; choice: 'allow'
 			<Text dimColor>{approval.reason}</Text>
 			<Text>{JSON.stringify(approval.arguments, null, 2)}</Text>
 			<Box marginTop={1} gap={2}>
-				<Text inverse={choice === 'allow'} color="green"> Y Allow once </Text>
-				<Text inverse={choice === 'deny'} color="red"> N Deny </Text>
+				<Text inverse={choice === 'allow'} color="green"> <Text color="gray">Y</Text> Allow once </Text>
+				<Text inverse={choice === 'deny'} color="red"> <Text color="gray">N</Text> Deny </Text>
 			</Box>
 		</Box>
 	);
@@ -252,7 +252,12 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 					{index === choice ? '› ' : '  '}{session.id === activeId ? '● ' : '  '}{session.title} <Text dimColor>({session.messageCount} turns • {formatDate(session.updatedAt)})</Text>
 				</Text>
 			))}
-			<Text dimColor>↑/↓ select • enter switch • n new • esc close</Text>
+			<HintLine hints={[
+				{key: '↑/↓', label: 'select'},
+				{key: 'enter', label: 'switch'},
+				{key: 'n', label: 'new'},
+				{key: 'esc', label: 'close'},
+			]} />
 		</Box>
 	);
 }
@@ -263,10 +268,14 @@ function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: n
 			<Text bold color="blue">Commands</Text>
 			{commands.map((command, index) => (
 				<Text key={command.name} inverse={index === choice}>
-					{index === choice ? '› ' : '  '}<Text bold>{command.name}</Text> <Text dimColor>— {command.description}</Text>
+					{index === choice ? '› ' : '  '}<Text bold color="gray">{command.name}</Text> <Text dimColor>— {command.description}</Text>
 				</Text>
 			))}
-			<Text dimColor>type to filter • ↑/↓ select • enter run • esc close</Text>
+			<HintLine prefix="type to filter" hints={[
+				{key: '↑/↓', label: 'select'},
+				{key: 'enter', label: 'run'},
+				{key: 'esc', label: 'close'},
+			]} />
 		</Box>
 	);
 }
@@ -281,14 +290,49 @@ function Composer({value, enabled}: {value: string; enabled: boolean}): React.Re
 }
 
 function Footer({active, approval, sessions}: {active: boolean; approval: boolean; sessions: boolean}): React.ReactNode {
-	const text = approval
-		? 'y allow • n deny • enter confirm • esc deny'
+	const hints: Hint[] = approval
+		? [
+			{key: 'y', label: 'allow'},
+			{key: 'n', label: 'deny'},
+			{key: 'enter', label: 'confirm'},
+			{key: 'esc', label: 'deny'},
+		]
 		: sessions
-			? '↑/↓ select • enter switch • n new • esc close'
+			? [
+				{key: '↑/↓', label: 'select'},
+				{key: 'enter', label: 'switch'},
+				{key: 'n', label: 'new'},
+				{key: 'esc', label: 'close'},
+			]
 		: active
-			? 'esc cancel • ctrl+c cancel'
-			: 'enter send • /session history • ctrl+enter newline • ctrl+c exit';
-	return <Box marginTop={1}><Text dimColor>{text}</Text></Box>;
+			? [
+				{key: 'esc', label: 'cancel'},
+				{key: 'ctrl+c', label: 'cancel'},
+			]
+			: [
+				{key: 'enter', label: 'send'},
+				{key: '/session', label: 'history'},
+				{key: 'ctrl+enter', label: 'newline'},
+				{key: 'ctrl+c', label: 'exit'},
+			];
+	return <Box marginTop={1}><HintLine hints={hints} /></Box>;
+}
+
+type Hint = {key: string; label: string};
+
+function HintLine({hints, prefix}: {hints: Hint[]; prefix?: string}): React.ReactNode {
+	return (
+		<Text>
+			{prefix && <Text dimColor>{prefix} • </Text>}
+			{hints.map((hint, index) => (
+				<React.Fragment key={`${hint.key}-${hint.label}`}>
+					{index > 0 && <Text dimColor> • </Text>}
+					<Text color="gray">{hint.key}</Text>
+					<Text dimColor> {hint.label}</Text>
+				</React.Fragment>
+			))}
+		</Text>
+	);
 }
 
 function formatDate(value: string): string {
