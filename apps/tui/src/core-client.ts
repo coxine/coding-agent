@@ -39,7 +39,7 @@ export class CoreClient extends EventEmitter {
 				workspaceRoot: this.options.workspaceRoot,
 				...(this.options.model ? {model: this.options.model} : {}),
 				...(this.options.baseUrl ? {baseUrl: this.options.baseUrl} : {}),
-				options: {maxSteps: 30, commandTimeoutMs: 30_000},
+				options: {maxSteps: 1000, commandTimeoutMs: 30_000},
 			}),
 		);
 	}

@@ -26,7 +26,7 @@ class AgentConfig:
     api_key: str
     base_url: str
     model: str
-    max_steps: int = 30
+    max_steps: int = 1000
     command_timeout_ms: int = 30_000
     max_context_chars: int = 200_000
     context_window_tokens: int = 128_000
@@ -71,7 +71,7 @@ class AgentConfig:
         if not isinstance(options, dict):
             raise ConfigurationError("options must be an object")
 
-        max_steps = cls._bounded_int(options, "maxSteps", 30, 1, 100)
+        max_steps = cls._bounded_int(options, "maxSteps", 1000, 1, 1000)
         timeout = cls._bounded_int(options, "commandTimeoutMs", 30_000, 1_000, 120_000)
         context_chars = cls._bounded_int(
             options, "maxContextChars", 200_000, 20_000, 2_000_000

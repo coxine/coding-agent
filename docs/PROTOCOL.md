@@ -129,7 +129,7 @@ TUI                           Core
     "model": "model-name",
     "baseUrl": "https://example.com/v1",
     "options": {
-      "maxSteps": 30,
+      "maxSteps": 1000,
       "commandTimeoutMs": 30000,
       "contextWindowTokens": 128000
     }
@@ -399,7 +399,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
     "metadata": {
       "conversationTitle": "修复解析器",
       "tools": 11,
-      "maxSteps": 30,
+      "maxSteps": 1000,
       "permissions": "Workspace (approval required for high-risk tools)"
     }
   }
@@ -761,10 +761,10 @@ TUI 显示问题输入面板，并以 `user_input_response` 回答。等待期�
   "payload": {
     "error": {
       "code": "max_steps_exceeded",
-      "message": "Agent reached the maximum of 30 steps",
+      "message": "Agent reached the maximum of 1000 steps",
       "retryable": false
     },
-    "steps": 30,
+    "steps": 1000,
     "toolCalls": 41
   }
 }
