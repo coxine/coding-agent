@@ -141,7 +141,7 @@ TUI                           Core
 
 - `workspaceRoot` 必须是绝对路径。
 - API Key 不通过协议发送，Core 自己从环境变量读取。
-- `contextWindowTokens` 可选，优先于 `AGENT_CONTEXT_WINDOW`；它只提供模型容量 metadata，不触发本地 token 估算。
+- `contextWindowTokens` 可选，优先于 `AGENT_CONTEXT_WINDOW`，两者都未配置时默认 `128000`；它只提供模型容量 metadata，不触发本地 token 估算。
 - TUI 可以传递非敏感选项；Core 负责最终校验和应用默认值。
 
 ### 6.2 `submit_task`

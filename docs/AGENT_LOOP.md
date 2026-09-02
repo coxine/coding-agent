@@ -442,7 +442,7 @@ fingerprint = tool_name + canonical_json(arguments)
 
 ### 15.2 预算与容量 metadata
 
-OpenAI 兼容协议的标准模型信息不保证返回上下文窗口上限。用户可通过 `AGENT_CONTEXT_WINDOW` 或初始化参数 `contextWindowTokens` 显式配置，用于 `/status` 将 API 实际 usage 与模型容量对比。当前版本不使用本地 tokenizer，也不依据该值估算下一次请求；发送前仍由 `ContextManager` 的字符上限执行保守历史裁剪。
+OpenAI 兼容协议的标准模型信息不保证返回上下文窗口上限。Core 默认按 128,000 token 展示，用户可通过 `AGENT_CONTEXT_WINDOW` 或初始化参数 `contextWindowTokens` 覆盖，用于 `/status` 将 API 实际 usage 与模型容量对比。当前版本不使用本地 tokenizer，也不依据该值估算下一次请求；发送前仍由 `ContextManager` 的字符上限执行保守历史裁剪。
 
 ### 15.3 优先级
 

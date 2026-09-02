@@ -29,7 +29,7 @@ class AgentConfig:
     max_steps: int = 30
     command_timeout_ms: int = 30_000
     max_context_chars: int = 200_000
-    context_window_tokens: int | None = None
+    context_window_tokens: int = 128_000
 
     @classmethod
     def from_initialize(cls, payload: dict[str, Any]) -> "AgentConfig":
@@ -83,7 +83,7 @@ class AgentConfig:
             key="contextWindowTokens",
             minimum=1_024,
             maximum=10_000_000,
-        )
+        ) or 128_000
 
         return cls(
             workspace_root=workspace,

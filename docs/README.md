@@ -110,7 +110,7 @@ export AGENT_CONTEXT_WINDOW="128000"
 | `OPENAI_API_KEY` | 是 | OpenAI 兼容接口的 API Key |
 | `OPENAI_BASE_URL` | 否 | API 地址，默认 `https://api.openai.com/v1` |
 | `AGENT_MODEL` | 是 | 需要调用的模型名称 |
-| `AGENT_CONTEXT_WINDOW` | 否 | 模型上下文窗口 token 上限，用于 `/status` 容量条；兼容协议通常无法自动提供 |
+| `AGENT_CONTEXT_WINDOW` | 否 | 模型上下文窗口 token 上限，用于 `/status` 容量条；默认 `128000`，兼容协议通常无法自动提供 |
 
 仓库提供了 [.env.example](../.env.example) 作为变量模板。你可以在准备运行 `coding-agent` 的目标项目中创建 `.env`：
 

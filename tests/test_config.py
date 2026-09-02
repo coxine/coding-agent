@@ -89,6 +89,17 @@ def test_config_requires_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path) -> N
         AgentConfig.from_initialize({"workspaceRoot": str(tmp_path), "model": "test"})
 
 
+def test_context_window_defaults_to_128k(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.delenv("AGENT_CONTEXT_WINDOW", raising=False)
+
+    config = AgentConfig.from_initialize({"workspaceRoot": str(tmp_path), "model": "test"})
+
+    assert config.context_window_tokens == 128000
+
+
 def test_config_rejects_relative_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     with pytest.raises(ConfigurationError, match="absolute"):
