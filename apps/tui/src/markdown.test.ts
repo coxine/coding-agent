@@ -25,17 +25,19 @@ test('renders common GFM blocks and inline formatting', () => {
 	assert.doesNotMatch(rendered, /\u001B]8/);
 });
 
-test('renders GFM tables with alignment and terminal-width truncation', () => {
+test('renders GFM tables with wrapped cells and no content truncation', () => {
 	const rendered = renderMarkdownForTerminal(
 		'| 名称 | Value | Note |\n| :--- | ---: | :---: |\n| 测试 | 42 | a very long value that must fit |',
 		42,
 	);
 	const plain = stripTerminalControls(rendered);
 	const lines = plain.split('\n').filter(line => line.trim());
+	const normalizedContent = plain.replaceAll(/[┌┬┐├┼┤└┴┘─│]/g, ' ').replaceAll(/\s+/g, ' ');
 	assert.match(plain, /名称/);
 	assert.match(plain, /测试/);
 	assert.ok(lines.every(line => stringWidth(line) <= 42));
-	assert.match(plain, /…/);
+	assert.match(normalizedContent, /a very long value that must fit/);
+	assert.doesNotMatch(plain, /…/);
 });
 
 test('highlights known fenced languages and falls back for unknown ones', () => {

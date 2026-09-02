@@ -1,12 +1,12 @@
-import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
-import {Box, Text, useApp, useInput} from 'ink';
-import {randomUUID} from 'node:crypto';
-import {CoreClient} from './core-client.js';
-import {matchingCommands, parseSlashCommand, SlashCommand} from './commands.js';
-import {MarkdownText} from './markdown.js';
-import {CoreEvent} from './protocol.js';
-import {Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem} from './state.js';
-import {tokenBarSegments, TokenSegmentKind} from './token-bar.js';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
+import { randomUUID } from 'node:crypto';
+import { CoreClient } from './core-client.js';
+import { matchingCommands, parseSlashCommand, SlashCommand } from './commands.js';
+import { MarkdownText } from './markdown.js';
+import { CoreEvent } from './protocol.js';
+import { Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem } from './state.js';
+import { tokenBarSegments, TokenSegmentKind } from './token-bar.js';
 
 type AppProps = {
 	repositoryRoot: string;
@@ -15,8 +15,8 @@ type AppProps = {
 	baseUrl?: string;
 };
 
-export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): React.ReactNode {
-	const {exit} = useApp();
+export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps): React.ReactNode {
+	const { exit } = useApp();
 	const [state, dispatch] = useReducer(reducer, initialState(workspaceRoot, model));
 	const [input, setInput] = useState('');
 	const [approvalChoice, setApprovalChoice] = useState<'allow' | 'deny'>('deny');
@@ -27,17 +27,17 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	const clientRef = useRef<CoreClient | null>(null);
 
 	useEffect(() => {
-		const client = new CoreClient({repositoryRoot, workspaceRoot, model, baseUrl});
+		const client = new CoreClient({ repositoryRoot, workspaceRoot, model, baseUrl });
 		clientRef.current = client;
 		const onEvent = (event: CoreEvent) => {
-			dispatch({type: 'core_event', event});
+			dispatch({ type: 'core_event', event });
 			if (['turn_finished', 'turn_failed', 'turn_cancelled'].includes(event.type)) setCancelling(false);
 			if (event.type === 'shutdown_complete') exit();
 		};
-		const onFatal = (message: string) => dispatch({type: 'fatal', message});
-		const onProtocolError = (message: string) => dispatch({type: 'notice', message, level: 'error'});
-		const onExit = ({code}: {code: number | null}) => {
-			if (code && code !== 0) dispatch({type: 'fatal', message: `Agent Core exited with code ${code}`});
+		const onFatal = (message: string) => dispatch({ type: 'fatal', message });
+		const onProtocolError = (message: string) => dispatch({ type: 'notice', message, level: 'error' });
+		const onExit = ({ code }: { code: number | null }) => {
+			if (code && code !== 0) dispatch({ type: 'fatal', message: `Agent Core exited with code ${code}` });
 		};
 		client.on('event', onEvent);
 		client.on('fatal', onFatal);
@@ -114,12 +114,12 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 		}
 
 		if (state.statusReport) {
-			if (key.escape || key.return) dispatch({type: 'close_status'});
+			if (key.escape || key.return) dispatch({ type: 'close_status' });
 			return;
 		}
 
 		if (state.sessionPickerOpen) {
-			if (key.escape) dispatch({type: 'close_session_picker'});
+			if (key.escape) dispatch({ type: 'close_session_picker' });
 			if (key.upArrow) setSessionChoice(value => Math.max(0, value - 1));
 			if (key.downArrow) setSessionChoice(value => Math.min(state.sessions.length - 1, value + 1));
 			if (character.toLowerCase() === 'n') client.createSession();
@@ -182,10 +182,10 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			if (!text) return;
 			if (text.startsWith('/')) {
 				const invocation = parseSlashCommand(text);
-				if (!invocation) dispatch({type: 'notice', message: `Unknown command: ${text}`, level: 'error'});
+				if (!invocation) dispatch({ type: 'notice', message: `Unknown command: ${text}`, level: 'error' });
 				else {
 					const error = runSlashCommand(invocation.command.name, invocation.argument, client);
-					if (error) dispatch({type: 'notice', message: error, level: 'error'});
+					if (error) dispatch({ type: 'notice', message: error, level: 'error' });
 				}
 				setInput('');
 				return;
@@ -193,10 +193,10 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			const turnId = `turn_${randomUUID().replaceAll('-', '')}`;
 			try {
 				client.submit(text, turnId);
-				dispatch({type: 'submitted', turnId, text});
+				dispatch({ type: 'submitted', turnId, text });
 				setInput('');
 			} catch (error) {
-				dispatch({type: 'notice', message: String(error), level: 'error'});
+				dispatch({ type: 'notice', message: String(error), level: 'error' });
 			}
 			return;
 		}
@@ -241,7 +241,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	);
 }
 
-function Header({model, workspace, conversation, status, step}: {model: string; workspace: string; conversation: string; status: string; step: number}): React.ReactNode {
+function Header({ model, workspace, conversation, status, step }: { model: string; workspace: string; conversation: string; status: string; step: number }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">coding-agent</Text>
@@ -250,7 +250,7 @@ function Header({model, workspace, conversation, status, step}: {model: string; 
 	);
 }
 
-function Transcript({item, tool}: {item: TranscriptItem; tool?: ToolView}): React.ReactNode {
+function Transcript({ item, tool }: { item: TranscriptItem; tool?: ToolView }): React.ReactNode {
 	if (item.kind === 'user') {
 		return <Box flexDirection="column" marginBottom={1}><Text bold color="green">You</Text><Text>{item.text}</Text></Box>;
 	}
@@ -265,8 +265,8 @@ function Transcript({item, tool}: {item: TranscriptItem; tool?: ToolView}): Reac
 	return tool ? <ToolCard tool={tool} /> : null;
 }
 
-function ToolCard({tool}: {tool: ToolView}): React.ReactNode {
-	const icon = {requested: '○', waiting_approval: '?', waiting_input: '?', running: '…', succeeded: '✓', failed: '✗', denied: '⊘', cancelled: '■'}[tool.status];
+function ToolCard({ tool }: { tool: ToolView }): React.ReactNode {
+	const icon = { requested: '○', waiting_approval: '?', waiting_input: '?', running: '…', succeeded: '✓', failed: '✗', denied: '⊘', cancelled: '■' }[tool.status];
 	const color = tool.status === 'succeeded' ? 'green' : ['failed', 'denied'].includes(tool.status) ? 'red' : 'yellow';
 	const output = sanitize(tool.output).split('\n').slice(-6).join('\n');
 	const diff = sanitize(tool.diff ?? '').split('\n').slice(0, 18).join('\n');
@@ -281,7 +281,7 @@ function ToolCard({tool}: {tool: ToolView}): React.ReactNode {
 	);
 }
 
-function ApprovalDialog({approval, choice}: {approval: Approval; choice: 'allow' | 'deny'}): React.ReactNode {
+function ApprovalDialog({ approval, choice }: { approval: Approval; choice: 'allow' | 'deny' }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="yellow" paddingX={1}>
 			<Text bold color="yellow">Approval required: {approval.name}</Text>
@@ -296,7 +296,7 @@ function ApprovalDialog({approval, choice}: {approval: Approval; choice: 'allow'
 	);
 }
 
-function QuestionDialog({question, answer}: {question: Question; answer: string}): React.ReactNode {
+function QuestionDialog({ question, answer }: { question: Question; answer: string }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">Agent needs your input</Text>
@@ -309,7 +309,7 @@ function QuestionDialog({question, answer}: {question: Question; answer: string}
 	);
 }
 
-function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]; activeId?: string; choice: number}): React.ReactNode {
+function SessionPicker({ sessions, activeId, choice }: { sessions: SessionSummary[]; activeId?: string; choice: number }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="magenta" paddingX={1}>
 			<Text bold color="magenta">Sessions</Text>
@@ -319,16 +319,16 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 				</Text>
 			))}
 			<HintLine hints={[
-				{key: '↑/↓', label: 'select'},
-				{key: 'enter', label: 'switch'},
-				{key: 'n', label: 'new'},
-				{key: 'esc', label: 'close'},
+				{ key: '↑/↓', label: 'select' },
+				{ key: 'enter', label: 'switch' },
+				{ key: 'n', label: 'new' },
+				{ key: 'esc', label: 'close' },
 			]} />
 		</Box>
 	);
 }
 
-function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
+function StatusPanel({ report }: { report: StatusReport }): React.ReactNode {
 	const latest = report.tokenUsage.latestMeasured;
 	const contextLimit = report.tokenUsage.contextWindowTokens;
 	return (
@@ -340,7 +340,7 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 				<StatusRow label="Conversation" value={report.conversationId} />
 				<StatusRow label="Core session" value={report.coreSessionId} />
 			</Box>
-			<Box flexDirection="column">
+			<Box flexDirection="column" marginTop={1}>
 				<Text bold>API token usage</Text>
 				{latest?.available ? (
 					<TokenUsageChart
@@ -352,13 +352,13 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 					<Text dimColor>No measured token usage</Text>
 				)}
 			</Box>
-			<Box flexDirection="column">
+			<Box flexDirection="column" marginTop={1}>
 				<Text bold>Metadata</Text>
 				{Object.entries(report.metadata).map(([key, value]) => (
 					<StatusRow key={key} label={metadataLabel(key)} value={formatMetadata(key, value)} />
 				))}
 			</Box>
-			<HintLine hints={[{key: 'enter/esc', label: 'close'}]} />
+			<HintLine hints={[{ key: 'enter/esc', label: 'close' }]} />
 		</Box>
 	);
 }
@@ -370,7 +370,7 @@ function TokenUsageChart({
 	detail,
 }: {
 	title: string;
-	usage: {promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; reasoningTokens: number};
+	usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; reasoningTokens: number };
 	contextWindowTokens?: number;
 	detail?: string;
 }): React.ReactNode {
@@ -383,7 +383,7 @@ function TokenUsageChart({
 		: `${formatNumber(used)} tokens`;
 	const segments = tokenBarSegments(usage, 42, contextWindowTokens);
 	return (
-		<Box flexDirection="column" marginTop={1}>
+		<Box flexDirection="column">
 			<Text>{title} <Text dimColor>• {capacity}{detail ? ` • ${detail}` : ''}</Text></Text>
 			<Text>
 				{'['}
@@ -411,16 +411,16 @@ function TokenLegend({
 	usage,
 	showRemaining,
 }: {
-	usage: {promptTokens: number; completionTokens: number; cachedTokens: number; reasoningTokens: number};
+	usage: { promptTokens: number; completionTokens: number; cachedTokens: number; reasoningTokens: number };
 	showRemaining: boolean;
 }): React.ReactNode {
 	const cached = Math.min(usage.promptTokens, usage.cachedTokens);
 	const reasoning = Math.min(usage.completionTokens, usage.reasoningTokens);
 	const items = [
-		{kind: 'input' as const, label: 'input', value: Math.max(0, usage.promptTokens - cached)},
-		{kind: 'cached' as const, label: 'cached', value: cached},
-		{kind: 'output' as const, label: 'output', value: Math.max(0, usage.completionTokens - reasoning)},
-		{kind: 'reasoning' as const, label: 'reasoning', value: reasoning},
+		{ kind: 'input' as const, label: 'input', value: Math.max(0, usage.promptTokens - cached) },
+		{ kind: 'cached' as const, label: 'cached', value: cached },
+		{ kind: 'output' as const, label: 'output', value: Math.max(0, usage.completionTokens - reasoning) },
+		{ kind: 'reasoning' as const, label: 'reasoning', value: reasoning },
 	].filter(item => item.value > 0);
 	return (
 		<Text dimColor>
@@ -435,11 +435,11 @@ function TokenLegend({
 	);
 }
 
-function StatusRow({label, value}: {label: string; value: string}): React.ReactNode {
+function StatusRow({ label, value }: { label: string; value: string }): React.ReactNode {
 	return <Text><Text dimColor>{`${label}:`.padEnd(20)}</Text>{value}</Text>;
 }
 
-function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: number}): React.ReactNode {
+function CommandPalette({ commands, choice }: { commands: SlashCommand[]; choice: number }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1} marginBottom={1}>
 			<Text bold color="blue">Commands</Text>
@@ -449,15 +449,15 @@ function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: n
 				</Text>
 			))}
 			<HintLine prefix="type to filter" hints={[
-				{key: '↑/↓', label: 'select'},
-				{key: 'enter', label: 'run'},
-				{key: 'esc', label: 'close'},
+				{ key: '↑/↓', label: 'select' },
+				{ key: 'enter', label: 'run' },
+				{ key: 'esc', label: 'close' },
 			]} />
 		</Box>
 	);
 }
 
-export function Composer({value, enabled}: {value: string; enabled: boolean}): React.ReactNode {
+export function Composer({ value, enabled }: { value: string; enabled: boolean }): React.ReactNode {
 	return (
 		<Box borderStyle="round" borderColor={enabled ? 'blue' : 'gray'} paddingX={1}>
 			<Text color={enabled ? 'blue' : 'gray'}>{'> '}</Text>
@@ -474,48 +474,48 @@ export function Composer({value, enabled}: {value: string; enabled: boolean}): R
 	);
 }
 
-function Footer({active, approval, question, sessions, status}: {active: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean}): React.ReactNode {
+function Footer({ active, approval, question, sessions, status }: { active: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean }): React.ReactNode {
 	const hints: Hint[] = approval
 		? [
-			{key: 'y', label: 'allow'},
-			{key: 'n', label: 'deny'},
-			{key: 'enter', label: 'confirm'},
-			{key: 'esc', label: 'deny'},
+			{ key: 'y', label: 'allow' },
+			{ key: 'n', label: 'deny' },
+			{ key: 'enter', label: 'confirm' },
+			{ key: 'esc', label: 'deny' },
 		]
 		: question
 			? [
-				{key: 'enter', label: 'answer'},
-				{key: 'ctrl+enter', label: 'newline'},
-				{key: 'esc', label: 'skip'},
-				{key: 'ctrl+c', label: 'cancel task'},
+				{ key: 'enter', label: 'answer' },
+				{ key: 'ctrl+enter', label: 'newline' },
+				{ key: 'esc', label: 'skip' },
+				{ key: 'ctrl+c', label: 'cancel task' },
 			]
-		: status
-			? [{key: 'enter/esc', label: 'close status'}]
-		: sessions
-			? [
-				{key: '↑/↓', label: 'select'},
-				{key: 'enter', label: 'switch'},
-				{key: 'n', label: 'new'},
-				{key: 'esc', label: 'close'},
-			]
-		: active
-			? [
-				{key: 'esc', label: 'cancel'},
-				{key: 'ctrl+c', label: 'cancel'},
-			]
-			: [
-				{key: 'enter', label: 'send'},
-				{key: '/session', label: 'history'},
-				{key: '/status', label: 'info'},
-				{key: 'ctrl+enter', label: 'newline'},
-				{key: 'ctrl+c', label: 'exit'},
-			];
+			: status
+				? [{ key: 'enter/esc', label: 'close status' }]
+				: sessions
+					? [
+						{ key: '↑/↓', label: 'select' },
+						{ key: 'enter', label: 'switch' },
+						{ key: 'n', label: 'new' },
+						{ key: 'esc', label: 'close' },
+					]
+					: active
+						? [
+							{ key: 'esc', label: 'cancel' },
+							{ key: 'ctrl+c', label: 'cancel' },
+						]
+						: [
+							{ key: 'enter', label: 'send' },
+							{ key: '/session', label: 'history' },
+							{ key: '/status', label: 'info' },
+							{ key: 'ctrl+enter', label: 'newline' },
+							{ key: 'ctrl+c', label: 'exit' },
+						];
 	return <Box marginTop={1}><HintLine hints={hints} /></Box>;
 }
 
-type Hint = {key: string; label: string};
+type Hint = { key: string; label: string };
 
-function HintLine({hints, prefix}: {hints: Hint[]; prefix?: string}): React.ReactNode {
+function HintLine({ hints, prefix }: { hints: Hint[]; prefix?: string }): React.ReactNode {
 	return (
 		<Text>
 			{prefix && <Text dimColor>{prefix} • </Text>}

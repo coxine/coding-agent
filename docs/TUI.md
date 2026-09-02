@@ -235,7 +235,7 @@ App
 
 - 标记为 `Agent`。
 - 流式增量追加到当前 assistant message。
-- 支持受控的基础 Markdown：标题、粗体、斜体、删除线、行内代码、代码块、表格、列表、引用、分隔线和链接文本。
+- 支持受控的基础 Markdown：标题、粗体、斜体、删除线、行内代码、代码块、表格、列表、引用、分隔线和链接文本。表格单元格按列宽完整换行，不使用省略号截断内容。
 - Markdown 由 `markdansi` 的 GFM parser 和终端 renderer 处理，不在 TUI 内自行维护 Markdown 语法解析器。
 - fenced code block 根据语言标记进行 ANSI 语法高亮；未标语言、未知语言或高亮失败时回退到原始文本。
 - GitHub 风格表格支持左对齐、居中和右对齐，并按终端显示宽度对齐中英文字符。
