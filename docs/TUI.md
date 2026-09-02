@@ -123,6 +123,10 @@ Core 无法启动或已经异常退出。显示错误摘要，并允许退出或
 
 用户在空闲 Composer 中键入 `/` 后显示。面板从真实注册的斜杠命令中按已输入前缀过滤；方向键移动，Enter 执行，Esc 清空命令输入并关闭。未知的 `/...` 不发送给模型，而是显示本地错误通知。
 
+### 5.8 `question`
+
+Agent 需要补充信息时显示独立问题面板并接管输入焦点。Enter 提交非空回答，Ctrl+Enter 插入换行，Esc 取消该问题，Ctrl+C 取消整个 turn。
+
 ## 6. 组件结构
 
 ```text
@@ -181,7 +185,7 @@ App
 
 ### 6.5 `ToolCallCard`
 
-工具调用使用统一卡片，不为六个工具设计完全不同的页面。
+工具调用使用统一卡片，不为每个工具设计完全不同的页面。
 
 折叠状态显示：
 
@@ -314,6 +318,9 @@ App
 | `↑` / `↓` | 移动选择或滚动 | `approval` / `details` |
 | `Tab` | 切换批准选项 | `approval` |
 | `Enter` | 确认批准选择 | `approval` |
+| `Enter` | 提交回答 | `question` |
+| `Ctrl+Enter` | 在回答中插入换行 | `question` |
+| `Esc` | 取消当前问题并让 Agent 继续 | `question` |
 
 为避免误退出：
 
@@ -371,6 +378,7 @@ Reducer 输入只允许：
 | `assistant_message_finished` | 固化消息内容 |
 | `tool_requested` | 创建工具卡片 |
 | `approval_required` | 切换到 approval 模式 |
+| `user_input_required` | 切换到 question 模式并显示问题 |
 | `tool_started` | 工具卡片进入 running |
 | `tool_output_delta` | 更新命令实时输出尾部 |
 | `file_diff` | 绑定 diff 到对应工具卡片 |

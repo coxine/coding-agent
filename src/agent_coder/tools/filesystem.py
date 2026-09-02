@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -285,5 +286,71 @@ def write_file(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
             "diffTruncated": diff_truncated,
         },
         truncated=diff_truncated,
+        changed_files=[display],
+    )
+
+
+def move_path(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
+    source_raw = require_string(arguments, "source")
+    destination_raw = require_string(arguments, "destination")
+    create_parents = arguments.get("createParents", False)
+    if not isinstance(create_parents, bool):
+        raise ToolFailure("invalid_arguments", "createParents must be a boolean")
+    source = paths.resolve_entry(source_raw)
+    if source.is_symlink():
+        paths.resolve(source_raw)  # Reject moving a symlink whose target escapes the workspace.
+    destination = paths.resolve(destination_raw, for_creation=True)
+    if source == paths.root:
+        raise ToolFailure("permission_denied", "cannot move the workspace root")
+    if not source.exists() and not source.is_symlink():
+        raise ToolFailure("file_not_found", f"source does not exist: {source_raw}", retryable=True)
+    if destination.exists() or destination.is_symlink():
+        raise ToolFailure("conflict", f"destination already exists: {destination_raw}")
+    if source.is_dir() and destination.is_relative_to(source):
+        raise ToolFailure("invalid_arguments", "cannot move a directory into itself")
+    if not destination.parent.exists():
+        if not create_parents:
+            raise ToolFailure("file_not_found", "destination parent does not exist", retryable=True)
+        destination.parent.mkdir(parents=True)
+    source_display = source.relative_to(paths.root).as_posix()
+    destination_display = paths.display(destination)
+    shutil.move(str(source), str(destination))
+    return ToolResult(
+        ok=True,
+        summary=f"Moved {source_display} to {destination_display}",
+        data={"source": source_display, "destination": destination_display},
+        changed_files=[source_display, destination_display],
+    )
+
+
+def delete_path(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
+    raw_path = require_string(arguments, "path")
+    recursive = arguments.get("recursive", False)
+    if not isinstance(recursive, bool):
+        raise ToolFailure("invalid_arguments", "recursive must be a boolean")
+    path = paths.resolve_entry(raw_path)
+    if path == paths.root:
+        raise ToolFailure("permission_denied", "cannot delete the workspace root")
+    if not path.exists() and not path.is_symlink():
+        raise ToolFailure("file_not_found", f"path does not exist: {raw_path}", retryable=True)
+    display = path.relative_to(paths.root).as_posix()
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if kind == "directory":
+        if recursive:
+            shutil.rmtree(path)
+        else:
+            try:
+                path.rmdir()
+            except OSError as exc:
+                raise ToolFailure(
+                    "directory_not_empty",
+                    "directory is not empty; set recursive=true to delete it",
+                ) from exc
+    else:
+        path.unlink()
+    return ToolResult(
+        ok=True,
+        summary=f"Deleted {display}",
+        data={"path": display, "type": kind, "recursive": recursive},
         changed_files=[display],
     )

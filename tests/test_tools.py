@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 
 import pytest
 
@@ -157,3 +158,107 @@ def test_command_risk_is_conservative() -> None:
     assert command_risk("uv run pytest") == "low"
     assert command_risk("npm install") == "high"
     assert command_risk("git push origin main") == "forbidden"
+
+
+@pytest.mark.asyncio
+async def test_move_and_delete_tools_are_bounded(tmp_path) -> None:
+    registry = ToolRegistry(tmp_path)
+    (tmp_path / "source.txt").write_text("content\n", encoding="utf-8")
+
+    moved, _ = await registry.execute(
+        "move_path",
+        {"source": "source.txt", "destination": "nested/target.txt", "createParents": True},
+        on_output=no_output,
+    )
+    assert moved.ok
+    assert moved.changed_files == ["source.txt", "nested/target.txt"]
+    assert (tmp_path / "nested" / "target.txt").is_file()
+
+    deleted, _ = await registry.execute(
+        "delete_path", {"path": "nested", "recursive": True}, on_output=no_output
+    )
+    assert deleted.ok
+    assert not (tmp_path / "nested").exists()
+    assert registry.risk("move_path", {}) == "medium"
+    assert registry.risk("delete_path", {}) == "high"
+
+
+@pytest.mark.asyncio
+async def test_move_refuses_overwrite_and_delete_refuses_workspace_root(tmp_path) -> None:
+    registry = ToolRegistry(tmp_path)
+    (tmp_path / "source.txt").write_text("source", encoding="utf-8")
+    (tmp_path / "target.txt").write_text("target", encoding="utf-8")
+    moved, _ = await registry.execute(
+        "move_path",
+        {"source": "source.txt", "destination": "target.txt"},
+        on_output=no_output,
+    )
+    assert not moved.ok
+    assert moved.error_code == "conflict"
+
+    deleted, _ = await registry.execute(
+        "delete_path", {"path": ".", "recursive": True}, on_output=no_output
+    )
+    assert not deleted.ok
+    assert deleted.error_code == "permission_denied"
+    assert (tmp_path / "source.txt").is_file()
+
+
+@pytest.mark.asyncio
+async def test_move_refuses_moving_directory_into_itself(tmp_path) -> None:
+    (tmp_path / "source").mkdir()
+    registry = ToolRegistry(tmp_path)
+
+    result, _ = await registry.execute(
+        "move_path",
+        {"source": "source", "destination": "source/nested/moved", "createParents": True},
+        on_output=no_output,
+    )
+
+    assert result.error_code == "invalid_arguments"
+    assert not (tmp_path / "source" / "nested").exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_unlinks_symlink_without_deleting_its_target(tmp_path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("keep", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    result, _ = await ToolRegistry(tmp_path).execute(
+        "delete_path", {"path": "link.txt"}, on_output=no_output
+    )
+    assert result.ok
+    assert not link.exists()
+    assert target.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.asyncio
+async def test_git_status_and_diff_return_structured_results(tmp_path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    target = tmp_path / "example.txt"
+    target.write_text("before\n", encoding="utf-8")
+    subprocess.run(["git", "add", "example.txt"], cwd=tmp_path, check=True)
+    target.write_text("before\nafter\n", encoding="utf-8")
+    registry = ToolRegistry(tmp_path)
+
+    status, _ = await registry.execute("git_status", {}, on_output=no_output)
+    assert status.ok
+    assert status.data["clean"] is False
+    assert status.data["entries"][0]["path"] == "example.txt"
+
+    worktree, _ = await registry.execute(
+        "git_diff", {"scope": "worktree", "path": "example.txt"}, on_output=no_output
+    )
+    staged, _ = await registry.execute(
+        "git_diff", {"scope": "staged", "path": "example.txt"}, on_output=no_output
+    )
+    assert worktree.ok and "+after" in worktree.data["diff"]
+    assert staged.ok and "+before" in staged.data["diff"]
+
+
+@pytest.mark.asyncio
+async def test_git_tools_report_non_repository(tmp_path) -> None:
+    result, _ = await ToolRegistry(tmp_path).execute("git_status", {}, on_output=no_output)
+    assert not result.ok
+    assert result.error_code == "not_git_repository"

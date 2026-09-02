@@ -93,7 +93,10 @@ TUI                           Core
  │<─── turn_started ──────────│
  │<─── assistant_delta ───────│ 0..n
  │<─── tool_requested ────────│ 0..n
- │<─── tool_started ──────────│
+ │<─── approval_required / ───│ 可选
+ │<─── user_input_required    │
+ │──── response ─────────────>│
+ │<─── tool_started ──────────│ 普通本地工具
  │<─── tool_finished ─────────│
  │<─── turn_finished ─────────│
  │──── submit_task ──────────>│ 可继续下一轮
@@ -208,6 +211,10 @@ TUI                           Core
 ```
 
 Core 收到后应中断模型请求、正在等待的批准或本地子进程，并最终发送 `turn_cancelled`。取消是异步请求，TUI 不能在发出后立即假设任务已经结束。
+
+### 6.4.1 `user_input_response`
+
+回答或取消 Agent 的提问。消息必须携带当前 `sessionId`、`turnId` 和对应 `toolCallId`。回答使用 `{"answer":"..."}`；取消问题使用 `{"cancelled":true}`。回答去除首尾空白后不能为空，最长 10,000 字符。
 
 ### 6.5 `list_sessions`
 
@@ -452,6 +459,23 @@ TUI 按收到顺序追加相同 `assistantMessageId` 的文本。
 
 Core 在收到对应 `approval_response` 前不得执行工具。等待期间不启动新的模型请求。
 
+### 7.8.1 `user_input_required`
+
+```json
+{
+  "protocolVersion": 1,
+  "type": "user_input_required",
+  "messageId": "msg_question_1",
+  "timestamp": "2026-08-27T08:01:02.000Z",
+  "sessionId": "sess_1",
+  "turnId": "turn_1",
+  "toolCallId": "call_9",
+  "payload": {"question": "输出应使用 JSON 还是 YAML？"}
+}
+```
+
+TUI 显示问题输入面板，并以 `user_input_response` 回答。等待期间不得提交新任务；用户仍可取消整个 turn。
+
 ### 7.9 `tool_started`
 
 ```json
@@ -687,6 +711,7 @@ Core 已停止接收任务、清理子进程和刷新日志后发送，随后以
 | `unknown_turn` | turn ID 不存在 | 否 |
 | `unknown_tool_call` | tool call ID 不存在 | 否 |
 | `approval_not_pending` | 当前调用不等待确认 | 否 |
+| `user_input_not_pending` | 当前调用不等待用户回答 | 否 |
 | `core_internal_error` | Core 无法继续运行 | 是 |
 
 ## 9. 顺序与一致性规则

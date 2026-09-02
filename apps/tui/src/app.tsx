@@ -5,7 +5,7 @@ import {CoreClient} from './core-client.js';
 import {matchingCommands, SlashCommand} from './commands.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
-import {Approval, initialState, reducer, SessionSummary, ToolView, TranscriptItem} from './state.js';
+import {Approval, initialState, Question, reducer, SessionSummary, ToolView, TranscriptItem} from './state.js';
 
 type AppProps = {
 	repositoryRoot: string;
@@ -22,6 +22,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	const [cancelling, setCancelling] = useState(false);
 	const [sessionChoice, setSessionChoice] = useState(0);
 	const [commandChoice, setCommandChoice] = useState(0);
+	const [questionAnswer, setQuestionAnswer] = useState('');
 	const clientRef = useRef<CoreClient | null>(null);
 
 	useEffect(() => {
@@ -53,6 +54,10 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 	}, [state.pendingApproval?.toolCallId]);
 
 	useEffect(() => {
+		setQuestionAnswer('');
+	}, [state.pendingQuestion?.toolCallId]);
+
+	useEffect(() => {
 		if (!state.sessionPickerOpen) return;
 		const activeIndex = state.sessions.findIndex(session => session.id === state.conversationId);
 		setSessionChoice(activeIndex < 0 ? 0 : activeIndex);
@@ -75,6 +80,35 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			if (character.toLowerCase() === 'n' || key.rightArrow || key.tab) setApprovalChoice('deny');
 			if (key.return) client.approve(state.pendingApproval.toolCallId, approvalChoice === 'allow');
 			if (key.escape) client.approve(state.pendingApproval.toolCallId, false);
+			return;
+		}
+
+		if (state.pendingQuestion) {
+			if (key.ctrl && character === 'c') {
+				client.cancel();
+				setCancelling(true);
+				return;
+			}
+			if (key.escape) {
+				client.answerQuestion(state.pendingQuestion.toolCallId);
+				return;
+			}
+			if (key.return) {
+				if (key.meta || key.ctrl) {
+					setQuestionAnswer(value => `${value}\n`);
+					return;
+				}
+				const answer = questionAnswer.trim();
+				if (answer) client.answerQuestion(state.pendingQuestion.toolCallId, answer);
+				return;
+			}
+			if (key.backspace || key.delete) {
+				setQuestionAnswer(value => value.slice(0, -1));
+				return;
+			}
+			if (character && !key.ctrl && !key.meta) {
+				setQuestionAnswer(value => value + sanitize(character));
+			}
 			return;
 		}
 
@@ -170,6 +204,8 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			</Box>
 			{state.pendingApproval ? (
 				<ApprovalDialog approval={state.pendingApproval} choice={approvalChoice} />
+			) : state.pendingQuestion ? (
+				<QuestionDialog question={state.pendingQuestion} answer={questionAnswer} />
 			) : state.sessionPickerOpen ? (
 				<SessionPicker sessions={state.sessions} activeId={state.conversationId} choice={sessionChoice} />
 			) : state.connection === 'fatal' ? (
@@ -183,7 +219,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 					<Composer value={input} enabled={canSubmit} />
 				</Box>
 			)}
-			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} sessions={state.sessionPickerOpen} />
+			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} />
 		</Box>
 	);
 }
@@ -213,7 +249,7 @@ function Transcript({item, tool}: {item: TranscriptItem; tool?: ToolView}): Reac
 }
 
 function ToolCard({tool}: {tool: ToolView}): React.ReactNode {
-	const icon = {requested: '○', waiting_approval: '?', running: '…', succeeded: '✓', failed: '✗', denied: '⊘', cancelled: '■'}[tool.status];
+	const icon = {requested: '○', waiting_approval: '?', waiting_input: '?', running: '…', succeeded: '✓', failed: '✗', denied: '⊘', cancelled: '■'}[tool.status];
 	const color = tool.status === 'succeeded' ? 'green' : ['failed', 'denied'].includes(tool.status) ? 'red' : 'yellow';
 	const output = sanitize(tool.output).split('\n').slice(-6).join('\n');
 	const diff = sanitize(tool.diff ?? '').split('\n').slice(0, 18).join('\n');
@@ -238,6 +274,19 @@ function ApprovalDialog({approval, choice}: {approval: Approval; choice: 'allow'
 			<Box marginTop={1} gap={2}>
 				<Text inverse={choice === 'allow'} color="green"> <Text color="gray">Y</Text> Allow once </Text>
 				<Text inverse={choice === 'deny'} color="red"> <Text color="gray">N</Text> Deny </Text>
+			</Box>
+		</Box>
+	);
+}
+
+function QuestionDialog({question, answer}: {question: Question; answer: string}): React.ReactNode {
+	return (
+		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
+			<Text bold color="cyan">Agent needs your input</Text>
+			<Text>{question.question}</Text>
+			<Box marginTop={1} borderStyle="round" borderColor="blue" paddingX={1}>
+				<Text color="blue">{'> '}</Text>
+				<Text>{answer}<Text inverse> </Text></Text>
 			</Box>
 		</Box>
 	);
@@ -297,7 +346,7 @@ export function Composer({value, enabled}: {value: string; enabled: boolean}): R
 	);
 }
 
-function Footer({active, approval, sessions}: {active: boolean; approval: boolean; sessions: boolean}): React.ReactNode {
+function Footer({active, approval, question, sessions}: {active: boolean; approval: boolean; question: boolean; sessions: boolean}): React.ReactNode {
 	const hints: Hint[] = approval
 		? [
 			{key: 'y', label: 'allow'},
@@ -305,6 +354,13 @@ function Footer({active, approval, sessions}: {active: boolean; approval: boolea
 			{key: 'enter', label: 'confirm'},
 			{key: 'esc', label: 'deny'},
 		]
+		: question
+			? [
+				{key: 'enter', label: 'answer'},
+				{key: 'ctrl+enter', label: 'newline'},
+				{key: 'esc', label: 'skip'},
+				{key: 'ctrl+c', label: 'cancel task'},
+			]
 		: sessions
 			? [
 				{key: '↑/↓', label: 'select'},

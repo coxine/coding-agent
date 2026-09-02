@@ -15,6 +15,7 @@ from .tools import ToolRegistry, ToolResult
 
 
 ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
+UserInputCallback = Callable[[str, str], Awaitable[str | None]]
 PersistCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
 
 
@@ -58,6 +59,7 @@ class Agent:
         model: ModelClientProtocol,
         tools: ToolRegistry,
         request_approval: ApprovalCallback,
+        request_user_input: UserInputCallback | None = None,
         history_messages: list[dict[str, Any]] | None = None,
         persist_messages: PersistCallback | None = None,
     ) -> None:
@@ -67,6 +69,7 @@ class Agent:
         self.model = model
         self.tools = tools
         self.request_approval = request_approval
+        self.request_user_input = request_user_input
         self.persist_messages = persist_messages
         self.context = ContextManager(config.max_context_chars)
         self.messages: list[dict[str, Any]] = [
@@ -144,14 +147,28 @@ class Agent:
 
             if reply.tool_calls:
                 empty_responses = 0
-                for call in reply.tool_calls:
-                    result = await self._execute_call(turn, call)
+                for call_index, call in enumerate(reply.tool_calls):
+                    try:
+                        result = await self._execute_call(turn, call)
+                    except asyncio.CancelledError:
+                        cancelled_result = ToolResult(
+                            ok=False,
+                            summary="Tool call cancelled",
+                            error_code="cancelled",
+                            error_message="turn was cancelled",
+                        )
+                        await self._emit_tool_finished(turn, call, cancelled_result, 0)
+                        for pending_call in reply.tool_calls[call_index:]:
+                            self.messages.append(
+                                self._tool_message(
+                                    pending_call.id,
+                                    cancelled_result,
+                                )
+                            )
+                        await self._persist()
+                        raise
                     self.messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.id,
-                            "content": json.dumps(result.as_dict(), ensure_ascii=False),
-                        }
+                        self._tool_message(call.id, result)
                     )
                     if turn.terminal:
                         await self._persist()
@@ -192,6 +209,14 @@ class Agent:
         if self.persist_messages is not None:
             await self.persist_messages(self.messages[1:])
 
+    @staticmethod
+    def _tool_message(tool_call_id: str, result: ToolResult) -> dict[str, Any]:
+        return {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": json.dumps(result.as_dict(), ensure_ascii=False),
+        }
+
     async def _execute_call(self, turn: TurnState, call: ToolCall) -> ToolResult:
         turn.tool_calls += 1
         try:
@@ -220,6 +245,55 @@ class Agent:
                 error_message="operation is outside the allowed tool policy",
             )
             await self._emit_tool_finished(turn, call, result, 0)
+            return result
+
+        if call.name == "request_user_input":
+            question = arguments.get("question")
+            if (
+                set(arguments) != {"question"}
+                or not isinstance(question, str)
+                or not question.strip()
+                or len(question) > 2_000
+            ):
+                result = ToolResult(
+                    ok=False,
+                    summary="Question arguments are invalid",
+                    error_code="invalid_arguments",
+                    error_message="question must be the only argument and contain 1-2000 characters",
+                    retryable=True,
+                )
+                await self._emit_tool_finished(turn, call, result, 0)
+                return result
+            if self.request_user_input is None:
+                result = ToolResult(
+                    ok=False,
+                    summary="User input is not available",
+                    error_code="unsupported_operation",
+                    error_message="the client does not support interactive questions",
+                )
+                await self._emit_tool_finished(turn, call, result, 0)
+                return result
+            await self._emit(
+                "agent_status", {"status": "waiting_for_user_input", "step": turn.step}, turn
+            )
+            started = time.monotonic()
+            answer = await self.request_user_input(call.id, question.strip())
+            if answer is None:
+                result = ToolResult(
+                    ok=False,
+                    summary="User cancelled the question",
+                    error_code="user_input_cancelled",
+                    error_message="user cancelled the question",
+                )
+            else:
+                result = ToolResult(
+                    ok=True,
+                    summary="User answered the question",
+                    data={"answer": answer},
+                )
+            await self._emit_tool_finished(
+                turn, call, result, int((time.monotonic() - started) * 1000)
+            )
             return result
 
         if risk == "high":
@@ -356,4 +430,10 @@ class Agent:
             return f"{name}: {arguments.get('path', '.')}"
         if name == "apply_patch":
             return "Apply a patch that includes a high-risk file deletion"
+        if name == "request_user_input":
+            return f"Ask user: {arguments.get('question', '')}"
+        if name == "move_path":
+            return f"Move {arguments.get('source', '')} to {arguments.get('destination', '')}"
+        if name == "delete_path":
+            return f"Delete {arguments.get('path', '')}"
         return name

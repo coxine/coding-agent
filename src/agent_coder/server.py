@@ -30,6 +30,7 @@ class CoreServer:
         self.active_turn_id: str | None = None
         self.active_task: asyncio.Task[None] | None = None
         self.approvals: dict[str, asyncio.Future[bool]] = {}
+        self.questions: dict[str, asyncio.Future[str | None]] = {}
         self.shutting_down = False
 
     async def run(self) -> int:
@@ -70,6 +71,8 @@ class CoreServer:
             await self._submit_task(message)
         elif message_type == "approval_response":
             await self._approval_response(message)
+        elif message_type == "user_input_response":
+            await self._user_input_response(message)
         elif message_type == "cancel_turn":
             await self._cancel_turn(message)
         elif message_type == "list_sessions":
@@ -115,6 +118,7 @@ class CoreServer:
                     "toolCalling": True,
                     "approvals": True,
                     "sessions": True,
+                    "userInput": True,
                 },
             },
             session_id=self.session_id,
@@ -152,6 +156,7 @@ class CoreServer:
             model=model,
             tools=tools,
             request_approval=self._request_approval,
+            request_user_input=self._request_user_input,
             history_messages=conversation.messages,
             persist_messages=persist,
         )
@@ -253,6 +258,51 @@ class CoreServer:
         finally:
             self.approvals.pop(tool_call_id, None)
 
+    async def _request_user_input(self, tool_call_id: str, question: str) -> str | None:
+        if self.session_id is None or self.active_turn_id is None:
+            return None
+        future: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+        self.questions[tool_call_id] = future
+        await self.emitter.emit(
+            "user_input_required",
+            {"question": question},
+            session_id=self.session_id,
+            turn_id=self.active_turn_id,
+            tool_call_id=tool_call_id,
+        )
+        try:
+            return await future
+        finally:
+            self.questions.pop(tool_call_id, None)
+
+    async def _user_input_response(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if message.get("turnId") != self.active_turn_id:
+            await self._error("unknown_turn", "turnId is not active")
+            return
+        tool_call_id = message.get("toolCallId")
+        future = self.questions.get(tool_call_id)
+        if future is None or future.done():
+            await self._error("user_input_not_pending", "tool call is not waiting for user input")
+            return
+        payload = message["payload"]
+        cancelled = payload.get("cancelled", False)
+        answer = payload.get("answer")
+        if not isinstance(cancelled, bool):
+            await self._error("invalid_message", "cancelled must be a boolean")
+            return
+        if cancelled:
+            future.set_result(None)
+            return
+        if not isinstance(answer, str) or not answer.strip():
+            await self._error("invalid_message", "answer must be a non-empty string")
+            return
+        if len(answer) > 10_000:
+            await self._error("invalid_message", "answer must not exceed 10000 characters")
+            return
+        future.set_result(answer.strip())
+
     async def _approval_response(self, message: dict[str, Any]) -> None:
         if not await self._check_session(message):
             return
@@ -288,6 +338,10 @@ class CoreServer:
             if not future.done():
                 future.cancel()
         self.approvals.clear()
+        for future in self.questions.values():
+            if not future.done():
+                future.cancel()
+        self.questions.clear()
         if emit_complete:
             await self.emitter.emit(
                 "shutdown_complete", {}, session_id=self.session_id

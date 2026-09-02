@@ -87,6 +87,22 @@ class WorkspacePaths:
     def display(self, path: Path) -> str:
         return path.resolve(strict=False).relative_to(self.root).as_posix() or "."
 
+    def resolve_entry(self, raw_path: str) -> Path:
+        """Resolve a directory entry without following its final symlink."""
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ToolFailure("invalid_arguments", "path must be a non-empty string")
+        supplied = Path(raw_path).expanduser()
+        candidate = supplied if supplied.is_absolute() else self.root / supplied
+        resolved = candidate.parent.resolve(strict=False) / candidate.name
+        try:
+            relative = resolved.relative_to(self.root)
+        except ValueError as exc:
+            raise ToolFailure(
+                "path_outside_workspace", f"path is outside workspace: {raw_path}"
+            ) from exc
+        self._check_forbidden(relative)
+        return resolved
+
     def _check_forbidden(self, relative: Path) -> None:
         parts = relative.parts
         for part in parts:

@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from .base import Risk, ToolFailure, ToolResult, WorkspacePaths, require_object
-from .filesystem import list_directory, read_file, search_text, write_file
+from .filesystem import delete_path, list_directory, move_path, read_file, search_text, write_file
+from .git import git_diff, git_status
 from .patch import apply_patch, patch_contains_delete
 from .shell import OutputCallback, command_risk, run_command
 
@@ -107,10 +108,72 @@ class ToolRegistry:
                     "additionalProperties": False,
                 },
             ),
+            _function(
+                "git_status",
+                "Read structured Git working-tree status without using a shell.",
+                {
+                    "type": "object",
+                    "properties": {"includeUntracked": {"type": "boolean", "default": True}},
+                    "additionalProperties": False,
+                },
+            ),
+            _function(
+                "git_diff",
+                "Read a bounded Git diff for the workspace or one path.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string", "enum": ["worktree", "staged", "all"]},
+                        "path": {"type": "string"},
+                        "contextLines": {"type": "integer", "minimum": 0, "maximum": 20},
+                        "maxChars": {"type": "integer", "minimum": 1000, "maximum": 120000},
+                    },
+                    "additionalProperties": False,
+                },
+            ),
+            _function(
+                "move_path",
+                "Move or rename a file or directory inside the workspace without overwriting.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string"},
+                        "destination": {"type": "string"},
+                        "createParents": {"type": "boolean", "default": False},
+                    },
+                    "required": ["source", "destination"],
+                    "additionalProperties": False,
+                },
+            ),
+            _function(
+                "delete_path",
+                "Delete one file, symlink, empty directory, or recursively delete a directory after approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "recursive": {"type": "boolean", "default": False},
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            ),
+            _function(
+                "request_user_input",
+                "Pause and ask the user one necessary, concise question before continuing.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string", "minLength": 1, "maxLength": 2000}
+                    },
+                    "required": ["question"],
+                    "additionalProperties": False,
+                },
+            ),
         ]
 
     def risk(self, name: str, arguments: dict[str, Any]) -> Risk:
-        if name in {"list_directory", "read_file", "search_text"}:
+        if name in {"list_directory", "read_file", "search_text", "git_status", "git_diff", "request_user_input"}:
             return "low"
         if name == "write_file":
             path = str(arguments.get("path", "")).lower()
@@ -122,6 +185,10 @@ class ToolRegistry:
         if name == "run_command":
             command = arguments.get("command")
             return command_risk(command) if isinstance(command, str) else "high"
+        if name == "move_path":
+            return "medium"
+        if name == "delete_path":
+            return "high"
         return "forbidden"
 
     async def execute(
@@ -152,6 +219,14 @@ class ToolRegistry:
                     default_timeout_ms=self.command_timeout_ms,
                     on_output=on_output,
                 )
+            elif name == "git_status":
+                result = await git_status(self.paths, values)
+            elif name == "git_diff":
+                result = await git_diff(self.paths, values)
+            elif name == "move_path":
+                result = move_path(self.paths, values)
+            elif name == "delete_path":
+                result = delete_path(self.paths, values)
             else:
                 raise ToolFailure("unknown_tool", f"unknown tool: {name}")
         except ToolFailure as exc:
@@ -196,6 +271,11 @@ class ToolRegistry:
             "write_file": {"path", "content", "expectedHash", "createParents"},
             "apply_patch": {"patch"},
             "run_command": {"command", "cwd", "timeoutMs"},
+            "git_status": {"includeUntracked"},
+            "git_diff": {"scope", "path", "contextLines", "maxChars"},
+            "move_path": {"source", "destination", "createParents"},
+            "delete_path": {"path", "recursive"},
+            "request_user_input": {"question"},
         }.get(name)
         if allowed is None:
             raise ToolFailure("unknown_tool", f"unknown tool: {name}")

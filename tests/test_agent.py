@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -177,3 +178,96 @@ async def test_agent_restores_history_and_persists_completed_turn(tmp_path) -> N
     assert model.requests[0][1:3] == history
     assert snapshots[0][-1] == {"role": "user", "content": "Second question"}
     assert snapshots[-1][-1] == {"role": "assistant", "content": "Second answer."}
+
+
+@pytest.mark.asyncio
+async def test_agent_can_pause_for_user_input_and_continue(tmp_path) -> None:
+    output = io.StringIO()
+    model = FakeModel(
+        [
+            AssistantReply(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call_question",
+                        name="request_user_input",
+                        arguments='{"question":"Which format should I use?"}',
+                    )
+                ],
+            ),
+            AssistantReply(content="I will use JSON.", tool_calls=[]),
+        ]
+    )
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    async def answer(tool_call_id: str, question: str) -> str | None:
+        assert tool_call_id == "call_question"
+        assert question == "Which format should I use?"
+        return "JSON"
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+        request_user_input=answer,
+    )
+    await agent.run_turn("turn_test", "Create an export")
+
+    tool_message = next(message for message in model.requests[1] if message["role"] == "tool")
+    assert json.loads(tool_message["content"])["data"]["answer"] == "JSON"
+    assert events(output)[-1]["type"] == "turn_finished"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_user_question_closes_tool_call_in_history(tmp_path) -> None:
+    output = io.StringIO()
+    model = FakeModel(
+        [
+            AssistantReply(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call_question",
+                        name="request_user_input",
+                        arguments='{"question":"Which format should I use?"}',
+                    )
+                ],
+            )
+        ]
+    )
+    question_started = asyncio.Event()
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    async def wait_for_answer(tool_call_id: str, question: str) -> str | None:
+        del tool_call_id, question
+        question_started.set()
+        await asyncio.Future()
+        return None
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+        request_user_input=wait_for_answer,
+    )
+    task = asyncio.create_task(agent.run_turn("turn_test", "Create an export"))
+    await question_started.wait()
+    task.cancel()
+    await task
+
+    tool_message = next(message for message in agent.messages if message["role"] == "tool")
+    assert json.loads(tool_message["content"])["error"]["code"] == "cancelled"
+    assert any(event["type"] == "tool_finished" for event in events(output))
+    assert events(output)[-1]["type"] == "turn_cancelled"

@@ -44,3 +44,38 @@ test('session events open picker and switching replaces transcript', () => {
 	assert.equal(switched.conversationId, 'conv_2');
 	assert.equal(switched.items.length, 1);
 });
+
+test('user input events open and close the question panel', () => {
+	let state = reducer(initialState('/tmp/project', 'model'), {
+		type: 'core_event',
+		event: message('tool_requested', {name: 'request_user_input', arguments: {question: 'Which format?'}, risk: 'low'}, {toolCallId: 'call_1'}),
+	});
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('user_input_required', {question: 'Which format?'}, {toolCallId: 'call_1'}),
+	});
+	assert.equal(state.pendingQuestion?.question, 'Which format?');
+	assert.equal(state.tools.call_1?.status, 'waiting_input');
+
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('tool_finished', {ok: true, summary: 'User answered'}, {toolCallId: 'call_1'}),
+	});
+	assert.equal(state.pendingQuestion, undefined);
+	assert.equal(state.tools.call_1?.status, 'succeeded');
+});
+
+test('cancelling a turn closes active tool cards', () => {
+	let state = reducer(initialState('/tmp/project', 'model'), {
+		type: 'core_event',
+		event: message('tool_requested', {name: 'request_user_input', arguments: {question: 'Continue?'}, risk: 'low'}, {toolCallId: 'call_1'}),
+	});
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('user_input_required', {question: 'Continue?'}, {toolCallId: 'call_1'}),
+	});
+	state = reducer(state, {type: 'core_event', event: message('turn_cancelled', {})});
+
+	assert.equal(state.pendingQuestion, undefined);
+	assert.equal(state.tools.call_1?.status, 'cancelled');
+});

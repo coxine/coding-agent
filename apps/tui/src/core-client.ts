@@ -61,6 +61,17 @@ export class CoreClient extends EventEmitter {
 		);
 	}
 
+	answerQuestion(toolCallId: string, answer?: string): void {
+		if (!this.sessionId || !this.activeTurnId) return;
+		this.send(
+			message(
+				'user_input_response',
+				answer === undefined ? {cancelled: true} : {answer},
+				{sessionId: this.sessionId, turnId: this.activeTurnId, toolCallId},
+			),
+		);
+	}
+
 	cancel(): void {
 		if (!this.sessionId || !this.activeTurnId) return;
 		this.send(

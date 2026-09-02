@@ -6,7 +6,7 @@ export type ToolView = {
 	name: string;
 	arguments: Record<string, unknown>;
 	risk: string;
-	status: 'requested' | 'waiting_approval' | 'running' | 'succeeded' | 'failed' | 'denied' | 'cancelled';
+	status: 'requested' | 'waiting_approval' | 'waiting_input' | 'running' | 'succeeded' | 'failed' | 'denied' | 'cancelled';
 	summary: string;
 	durationMs?: number;
 	output: string;
@@ -26,6 +26,11 @@ export type Approval = {
 	summary: string;
 	reason: string;
 	arguments: Record<string, unknown>;
+};
+
+export type Question = {
+	toolCallId: string;
+	question: string;
 };
 
 export type SessionSummary = {
@@ -51,6 +56,7 @@ export type AppState = {
 	items: TranscriptItem[];
 	tools: Record<string, ToolView>;
 	pendingApproval?: Approval;
+	pendingQuestion?: Question;
 	fatalError?: string;
 };
 
@@ -189,6 +195,14 @@ export function reducer(state: AppState, action: Action): AppState {
 				tools: updateTool(state.tools, id, {status: 'waiting_approval'}),
 			};
 		}
+		case 'user_input_required': {
+			const id = event.toolCallId ?? '';
+			return {
+				...state,
+				pendingQuestion: {toolCallId: id, question: String(payload.question ?? '')},
+				tools: updateTool(state.tools, id, {status: 'waiting_input'}),
+			};
+		}
 		case 'tool_started': {
 			const id = event.toolCallId ?? '';
 			return {...state, tools: updateTool(state.tools, id, {status: 'running'})};
@@ -210,6 +224,7 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				pendingApproval: state.pendingApproval?.toolCallId === id ? undefined : state.pendingApproval,
+				pendingQuestion: state.pendingQuestion?.toolCallId === id ? undefined : state.pendingQuestion,
 				tools: updateTool(state.tools, id, {
 					status: ok ? 'succeeded' : errorCode === 'approval_denied' ? 'denied' : 'failed',
 					summary: String(payload.summary ?? ''),
@@ -221,13 +236,14 @@ export function reducer(state: AppState, action: Action): AppState {
 		case 'context_updated':
 			return {...state, items: [...state.items, {kind: 'notice', id: event.messageId, text: String(payload.summary ?? ''), level: 'info'}]};
 		case 'turn_finished':
-			return {...state, activeTurnId: undefined, status: 'Ready', step: 0, pendingApproval: undefined};
+			return {...state, activeTurnId: undefined, status: 'Ready', step: 0, pendingApproval: undefined, pendingQuestion: undefined};
 		case 'turn_failed':
 			return {
 				...state,
 				activeTurnId: undefined,
 				status: 'Failed',
 				pendingApproval: undefined,
+				pendingQuestion: undefined,
 				items: [...state.items, {kind: 'notice', id: event.messageId, text: errorText(payload), level: 'error'}],
 			};
 		case 'turn_cancelled':
@@ -235,7 +251,9 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				activeTurnId: undefined,
 				status: 'Cancelled',
+				tools: cancelActiveTools(state.tools),
 				pendingApproval: undefined,
+				pendingQuestion: undefined,
 				items: [...state.items, {kind: 'notice', id: event.messageId, text: 'Current task was cancelled.', level: 'info'}],
 			};
 		case 'error':
@@ -247,6 +265,17 @@ export function reducer(state: AppState, action: Action): AppState {
 		default:
 			return state;
 	}
+}
+
+function cancelActiveTools(tools: Record<string, ToolView>): Record<string, ToolView> {
+	return Object.fromEntries(
+		Object.entries(tools).map(([id, tool]) => [
+			id,
+			['requested', 'waiting_approval', 'waiting_input', 'running'].includes(tool.status)
+				? {...tool, status: 'cancelled'}
+				: tool,
+		]),
+	);
 }
 
 function updateTool(tools: Record<string, ToolView>, id: string, update: Partial<ToolView>): Record<string, ToolView> {
@@ -266,6 +295,11 @@ function summarizeTool(name: string, args: Record<string, unknown>): string {
 	if (name === 'run_command') return String(args.command ?? 'command');
 	if (name === 'search_text') return `${String(args.query ?? '')} in ${String(args.path ?? '.')}`;
 	if (name === 'apply_patch') return 'Apply file changes';
+	if (name === 'git_status') return 'Read Git working-tree status';
+	if (name === 'git_diff') return `Read ${String(args.scope ?? 'worktree')} Git diff`;
+	if (name === 'move_path') return `${String(args.source ?? '')} → ${String(args.destination ?? '')}`;
+	if (name === 'delete_path') return `Delete ${String(args.path ?? '')}`;
+	if (name === 'request_user_input') return String(args.question ?? 'Ask the user');
 	return String(args.path ?? '.');
 }
 

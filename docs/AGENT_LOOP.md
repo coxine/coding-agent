@@ -218,7 +218,7 @@ async def run_turn(user_text):
 
         if assistant_message.tool_calls:
             for call in assistant_message.tool_calls:
-                result = await execute_tool_call(call, turn)
+                result = await execute_or_request_input(call, turn)
                 append_tool_message(call, result)
             continue
 
@@ -236,7 +236,7 @@ async def run_turn(user_text):
 每次请求至少包含：
 
 - 经过预算处理的消息列表。
-- 六个工具的原生 tool calling 定义。
+- 十一个工具的原生 tool calling 定义。
 - 模型名称。
 - 流式响应开关。
 - 供应商支持时的最大输出限制。
@@ -306,12 +306,13 @@ JSON 解析失败时，为该 tool call 生成 `invalid_arguments` 结果并返�
 2. 查找工具并校验参数。
 3. 计算风险等级。
 4. 如需批准，发送 `approval_required` 并等待决定。
-5. 被拒绝时生成 `approval_denied` 结果，不调用 handler。
-6. 允许执行时发送 `tool_started`。
-7. 执行 handler；命令可发送受限的实时输出。
-8. 文件修改成功时发送 `file_diff`。
-9. 发送 `tool_finished`。
-10. 将紧凑结果作为 tool message 加入模型历史。
+5. `request_user_input` 发送 `user_input_required` 并等待用户回答，不调用 handler。
+6. 被拒绝时生成 `approval_denied` 结果，不调用 handler。
+7. 允许执行时发送 `tool_started`。
+8. 执行 handler；命令可发送受限的实时输出。
+9. 文件修改成功时发送 `file_diff`。
+10. 发送 `tool_finished`。
+11. 将紧凑结果作为 tool message 加入模型历史。
 
 第一版串行执行同一响应中的多个 tool calls。若前一个工具修改了文件，后一个工具看到的是修改后的工作区。
 
