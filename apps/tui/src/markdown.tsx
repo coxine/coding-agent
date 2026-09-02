@@ -2,6 +2,8 @@ import React, {useMemo} from 'react';
 import {Text, useWindowSize} from 'ink';
 import {highlight, supportsLanguage, type Theme as HighlightTheme} from 'cli-highlight';
 import {render, type RenderOptions, type Theme} from 'markdansi';
+import sliceAnsi from 'slice-ansi';
+import stringWidth from 'string-width';
 
 const MIN_RENDER_WIDTH = 20;
 const HORIZONTAL_CHROME = 4;
@@ -65,7 +67,80 @@ export function renderMarkdownForTerminal(source: string, width: number): string
 		codeWrap: true,
 		highlighter: highlightCode,
 	};
-	return render(safeSource, options).replace(/^\n+|\n+$/g, '');
+	return alignWrappedTableRows(render(safeSource, options)).replace(/^\n+|\n+$/g, '');
+}
+
+function alignWrappedTableRows(rendered: string): string {
+	const output: string[] = [];
+	let columnWidths: number[] | undefined;
+
+	for (const line of rendered.split('\n')) {
+		const plain = stripTerminalControls(line);
+		if (plain.startsWith('┌') && plain.endsWith('┐')) {
+			columnWidths = plain.slice(1, -1).split('┬').map(part => stringWidth(part));
+			output.push(line);
+			continue;
+		}
+
+		if (columnWidths && plain.startsWith('│') && plain.endsWith('│')) {
+			const widths = columnWidths;
+			const cells = line.slice(1, -1).split('│');
+			if (cells.length === widths.length) {
+				const wrapped = cells.map((cell, index) => wrapTableCell(cell, widths[index] ?? 1));
+				const height = Math.max(...wrapped.map(lines => lines.length));
+				for (let row = 0; row < height; row += 1) {
+					const parts = wrapped.map((lines, index) => padAnsi(lines[row] ?? '', widths[index] ?? 1));
+					output.push(`│${parts.join('│')}│`);
+				}
+				continue;
+			}
+		}
+
+		output.push(line);
+		if (columnWidths && plain.startsWith('└') && plain.endsWith('┘')) columnWidths = undefined;
+	}
+
+	return output.join('\n');
+}
+
+function wrapTableCell(value: string, width: number): string[] {
+	if (visibleWidth(value) <= width) return [value];
+	const padding = Math.min(1, Math.floor((width - 1) / 2));
+	const contentWidth = Math.max(1, width - padding * 2);
+	const content = sliceAnsi(value, padding, Math.max(padding, visibleWidth(value) - padding));
+	return hardWrapAnsi(content, contentWidth).map(line => {
+		return `${' '.repeat(padding)}${padAnsi(line, contentWidth)}${' '.repeat(padding)}`;
+	});
+}
+
+function hardWrapAnsi(value: string, width: number): string[] {
+	const totalWidth = visibleWidth(value);
+	if (totalWidth <= width) return [value];
+
+	const lines: string[] = [];
+	let start = 0;
+	while (start < totalWidth) {
+		let end = Math.min(totalWidth, start + width);
+		let part = sliceAnsi(value, start, end);
+		let partWidth = visibleWidth(part);
+		while (partWidth === 0 && end < totalWidth) {
+			end += 1;
+			part = sliceAnsi(value, start, end);
+			partWidth = visibleWidth(part);
+		}
+		if (partWidth === 0) break;
+		lines.push(part);
+		start += partWidth;
+	}
+	return lines.length > 0 ? lines : [''];
+}
+
+function padAnsi(value: string, width: number): string {
+	return `${value}${' '.repeat(Math.max(0, width - visibleWidth(value)))}`;
+}
+
+function visibleWidth(value: string): number {
+	return stringWidth(stripTerminalControls(value));
 }
 
 export function highlightCode(source: string, language?: string): string {

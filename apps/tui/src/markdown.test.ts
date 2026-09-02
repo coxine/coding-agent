@@ -40,6 +40,31 @@ test('renders GFM tables with wrapped cells and no content truncation', () => {
 	assert.doesNotMatch(plain, /…/);
 });
 
+test('keeps table borders aligned while hard-wrapping CJK and long words', () => {
+	const rendered = renderMarkdownForTerminal(
+		'| 工具 | 作用 |\n| --- | --- |\n| search_text | 搜索文件内容或文件名，支持正则、glob、大小写开关 |\n| read_file | supercalifragilisticexpialidocious |',
+		48,
+	);
+	const plain = stripTerminalControls(rendered);
+	const lines = plain.split('\n').filter(Boolean);
+	const top = lines.find(line => line.startsWith('┌'));
+	assert.ok(top);
+	const widths = top.slice(1, -1).split('┬').map(part => stringWidth(part));
+	const rows = lines.filter(line => line.startsWith('│'));
+	const compact = plain.replaceAll(/[┌┬┐├┼┤└┴┘─│\s]/g, '');
+
+	assert.ok(lines.every(line => stringWidth(line) <= 48));
+	assert.ok(rows.every(line => {
+		const cells = line.slice(1, -1).split('│');
+		return cells.length === widths.length && cells.every((cell, index) => {
+			return stringWidth(cell) === widths[index] && cell.startsWith(' ') && cell.endsWith(' ');
+		});
+	}));
+	assert.match(compact, /搜索文件内容或文件名，支持正则、glob、大小写开关/);
+	assert.match(compact, /supercalifragilisticexpialidocious/);
+	assert.doesNotMatch(plain, /…/);
+});
+
 test('highlights known fenced languages and falls back for unknown ones', () => {
 	const highlighted = highlightCode('const answer = 42;', 'typescript');
 	assert.match(highlighted, /\u001B\[/);
