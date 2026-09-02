@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import os
+import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -12,6 +15,26 @@ from .base import ToolFailure, ToolResult, WorkspacePaths, optional_int, require
 
 
 MAX_TEXT_CHARS = 40_000
+
+# Directories always excluded from search even when not listed in .gitignore.
+# (Hidden directories like .git and .coding-agent are already skipped by rg.)
+_RG_EXCLUDE_GLOBS = (
+    ".venv",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".pytest_cache",
+)
+
+_rg_available: bool | None = None
+
+
+def _has_rg() -> bool:
+    global _rg_available
+    if _rg_available is None:
+        _rg_available = shutil.which("rg") is not None
+    return _rg_available
 
 
 def _hash_bytes(content: bytes) -> str:
@@ -153,8 +176,6 @@ def read_file(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
 
 
 def search_text(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
-    import re
-
     query = require_string(arguments, "query")
     raw_path = arguments.get("path", ".")
     if not isinstance(raw_path, str):
@@ -181,6 +202,168 @@ def search_text(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolResult:
     except re.error as exc:
         raise ToolFailure("invalid_arguments", f"invalid regular expression: {exc}") from exc
 
+    if _has_rg():
+        try:
+            if mode == "files":
+                return _search_files_rg(
+                    paths, root, query, is_regex, case_sensitive, glob_pattern, limit
+                )
+            return _search_content_rg(
+                paths, root, query, is_regex, case_sensitive, glob_pattern, limit
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            pass  # fall back to the Python implementation
+
+    return _search_text_python(
+        paths, root, query, pattern, glob_pattern, limit, mode
+    )
+
+
+def _rg_exclude_args() -> list[str]:
+    args: list[str] = []
+    for directory in _RG_EXCLUDE_GLOBS:
+        args.extend(["-g", f"!**/{directory}/**"])
+    return args
+
+
+def _rg_path_arg(paths: WorkspacePaths, root: Path) -> list[str]:
+    display = paths.display(root)
+    return [] if display == "." else [display]
+
+
+def _search_content_rg(
+    paths: WorkspacePaths,
+    root: Path,
+    query: str,
+    is_regex: bool,
+    case_sensitive: bool,
+    glob_pattern: str | None,
+    limit: int,
+) -> ToolResult:
+    command = ["rg", "--json", "--column", "--no-heading", "--color", "never"]
+    if not is_regex:
+        command.append("-F")
+    command.append("-s" if case_sensitive else "-i")
+    if glob_pattern:
+        command.extend(["--glob", glob_pattern])
+    command.extend(_rg_exclude_args())
+    command.extend(["--", query, *(_rg_path_arg(paths, root))])
+
+    process = subprocess.run(
+        command,
+        cwd=str(paths.root),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if process.returncode not in (0, 1):
+        raise ToolFailure("internal_error", f"rg failed: {process.stderr.strip()}")
+
+    matches: list[dict[str, Any]] = []
+    total: int | None = None
+    for line in process.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        record_type = record.get("type")
+        data = record.get("data") or {}
+        if record_type == "match":
+            if len(matches) >= limit:
+                continue
+            path_text = (data.get("path") or {}).get("text", "")
+            submatches = data.get("submatches") or []
+            column = (submatches[0].get("start", 0) + 1) if submatches else 1
+            text = (data.get("lines") or {}).get("text", "")
+            matches.append(
+                {
+                    "path": path_text,
+                    "line": data.get("line_number", 0),
+                    "column": column,
+                    "text": text[:500],
+                }
+            )
+        elif record_type == "summary":
+            total = (data.get("stats") or {}).get("matches")
+
+    count = total if total is not None else len(matches)
+    truncated = count > limit
+    return ToolResult(
+        ok=True,
+        summary=f"Found {count} content matches for {query!r}",
+        data={
+            "mode": "content",
+            "matchCount": count,
+            "truncated": truncated,
+            "matches": matches,
+        },
+        truncated=truncated,
+    )
+
+
+def _search_files_rg(
+    paths: WorkspacePaths,
+    root: Path,
+    query: str,
+    is_regex: bool,
+    case_sensitive: bool,
+    glob_pattern: str | None,
+    limit: int,
+) -> ToolResult:
+    command = ["rg", "--files"]
+    if glob_pattern:
+        command.extend(["--glob", glob_pattern])
+    command.extend(_rg_exclude_args())
+    command.extend(_rg_path_arg(paths, root))
+
+    process = subprocess.run(
+        command,
+        cwd=str(paths.root),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if process.returncode not in (0, 1):
+        raise ToolFailure("internal_error", f"rg failed: {process.stderr.strip()}")
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = re.compile(query if is_regex else re.escape(query), flags)
+
+    paths_found: list[str] = []
+    total = 0
+    for line in process.stdout.splitlines():
+        if not line:
+            continue
+        if pattern.search(Path(line).name):
+            total += 1
+            if len(paths_found) < limit:
+                paths_found.append(line)
+
+    truncated = total > limit
+    return ToolResult(
+        ok=True,
+        summary=f"Found {total} files matches for {query!r}",
+        data={
+            "mode": "files",
+            "matchCount": total,
+            "truncated": truncated,
+            "paths": paths_found,
+        },
+        truncated=truncated,
+    )
+
+
+def _search_text_python(
+    paths: WorkspacePaths,
+    root: Path,
+    query: str,
+    pattern: re.Pattern[str],
+    glob_pattern: str | None,
+    limit: int,
+    mode: str,
+) -> ToolResult:
     ignored = {
         ".git",
         ".coding-agent",

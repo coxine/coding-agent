@@ -8,11 +8,12 @@ from typing import Any
 
 import pytest
 
-from agent_coder.agent import Agent
+from agent_coder.agent import Agent, TurnState
 from agent_coder.config import AgentConfig
-from agent_coder.model import AssistantReply, TokenUsage, ToolCall
+from agent_coder.model import AssistantReply, ContextLengthError, TokenUsage, ToolCall
 from agent_coder.protocol import ProtocolEmitter
 from agent_coder.tools import ToolRegistry
+from agent_coder.tools.base import ToolResult
 
 
 class FakeModel:
@@ -466,3 +467,79 @@ async def test_agent_detects_repeated_read_only_calls(tmp_path) -> None:
     emitted = events(output)
     failed = next(event for event in emitted if event["type"] == "turn_failed")
     assert failed["payload"]["error"]["code"] == "repeated_tool_call"
+
+
+def test_repeated_detection_respects_command_result_changes() -> None:
+    turn = TurnState(turn_id="turn_test", user_text="run tests")
+    call = ToolCall(id="call_1", name="run_command", arguments='{"command":"pytest"}')
+
+    failed = ToolResult(ok=False, summary="Command exited with code 1", data={"exitCode": 1, "stdout": "1 failed", "stderr": ""})
+    passed = ToolResult(ok=True, summary="Command completed with exit code 0", data={"exitCode": 0, "stdout": "ok", "stderr": ""})
+
+    Agent._record_fingerprint(None, turn, call, failed)
+    Agent._record_fingerprint(None, turn, call, failed)
+    Agent._record_fingerprint(None, turn, call, failed)
+    assert Agent._is_repeated(turn) is True
+
+    Agent._record_fingerprint(None, turn, call, passed)
+    assert Agent._is_repeated(turn) is False
+
+
+def test_repeated_detection_respects_file_changes() -> None:
+    turn = TurnState(turn_id="turn_test", user_text="edit")
+    call = ToolCall(id="call_1", name="read_file", arguments='{"path":"a.txt"}')
+
+    read = ToolResult(ok=True, summary="Read a.txt", data={"content": "x"})
+    write = ToolResult(ok=True, summary="Updated a.txt", changed_files=["a.txt"])
+
+    Agent._record_fingerprint(None, turn, call, read)
+    Agent._record_fingerprint(None, turn, call, read)
+    assert Agent._is_repeated(turn) is False
+
+    Agent._record_fingerprint(None, turn, call, read)
+    assert Agent._is_repeated(turn) is True
+
+    Agent._record_fingerprint(None, turn, ToolCall(id="call_2", name="write_file", arguments='{"path":"a.txt","content":"y"}'), write)
+    Agent._record_fingerprint(None, turn, call, read)
+    assert Agent._is_repeated(turn) is False
+
+
+@pytest.mark.asyncio
+async def test_agent_compacts_and_retries_on_context_length(tmp_path) -> None:
+    output = io.StringIO()
+
+    class ContextLengthModel:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.requests: list[list[dict[str, Any]]] = []
+
+        async def complete(self, messages, tools, on_text_delta, on_reasoning_delta=None):
+            del tools, on_reasoning_delta
+            self.calls += 1
+            self.requests.append(messages)
+            if self.calls == 1:
+                raise ContextLengthError("maximum context length exceeded")
+            await on_text_delta("Done.")
+            return AssistantReply(content="Done.", tool_calls=[])
+
+        async def summarize(self, messages):
+            del messages
+            return None
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    model = ContextLengthModel()
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+    )
+    await agent.run_turn("turn_test", "Do the task")
+
+    assert model.calls == 2
+    assert events(output)[-1]["type"] == "turn_finished"

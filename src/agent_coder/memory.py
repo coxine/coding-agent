@@ -376,6 +376,16 @@ class MemoryManager:
         request, _summarized = await self._run_compaction(messages)
         return request
 
+    async def compact_request(
+        self, messages: list[dict[str, Any]], changed_files: set[str] | None = None
+    ) -> list[dict[str, Any]]:
+        if changed_files:
+            self._merge(self.state.modified_files, sorted(changed_files))
+
+        self.compact_count += 1
+        request, _summarized = await self._run_compaction(messages)
+        return request
+
     async def force_compact(
         self, messages: list[dict[str, Any]], changed_files: set[str] | None = None
     ) -> dict[str, Any]:

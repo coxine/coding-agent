@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import httpx
 import pytest
-from openai import BadRequestError
+from openai import AuthenticationError, BadRequestError, RateLimitError
 
-from agent_coder.model import OpenAICompatibleClient
+from agent_coder.model import ContextLengthError, OpenAICompatibleClient
 
 
 class FakeCompletions:
@@ -187,3 +188,99 @@ async def test_summarize_returns_none_on_invalid_json() -> None:
     )
 
     assert await client.summarize([{"role": "user", "content": "hi"}]) is None
+
+
+@pytest.mark.asyncio
+async def test_client_retries_rate_limit_then_succeeds(monkeypatch) -> None:
+    async def no_sleep(_seconds: float) -> None:
+        del _seconds
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+    attempts = {"count": 0}
+    text_chunk = SimpleNamespace(
+        usage=None,
+        choices=[SimpleNamespace(delta=SimpleNamespace(content="Done", tool_calls=None))],
+    )
+
+    async def fake_create(**arguments):
+        del arguments
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+            response = httpx.Response(429, request=request)
+            raise RateLimitError("rate limited", response=response, body=None)
+
+        async def stream():
+            yield text_chunk
+
+        return stream()
+
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    async def on_delta(text: str) -> None:
+        del text
+
+    reply = await client.complete([], [], on_delta)
+
+    assert attempts["count"] == 2
+    assert reply.content == "Done"
+
+
+@pytest.mark.asyncio
+async def test_client_does_not_retry_authentication() -> None:
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+    attempts = {"count": 0}
+
+    async def fake_create(**arguments):
+        del arguments
+        attempts["count"] += 1
+        request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        response = httpx.Response(401, request=request)
+        raise AuthenticationError("invalid key", response=response, body=None)
+
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    async def on_delta(text: str) -> None:
+        del text
+
+    with pytest.raises(AuthenticationError):
+        await client.complete([], [], on_delta)
+
+    assert attempts["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_client_raises_context_length_error() -> None:
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+
+    async def fake_create(**arguments):
+        del arguments
+        request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        response = httpx.Response(400, request=request)
+        raise BadRequestError(
+            "This model's maximum context length is 4096 tokens",
+            response=response,
+            body=None,
+        )
+
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    async def on_delta(text: str) -> None:
+        del text
+
+    with pytest.raises(ContextLengthError):
+        await client.complete([], [], on_delta)

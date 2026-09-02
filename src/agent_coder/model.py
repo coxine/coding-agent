@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from openai import AsyncOpenAI, BadRequestError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    AuthenticationError,
+    BadRequestError,
+    InternalServerError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 
 TextDeltaCallback = Callable[[str], Awaitable[None]]
+
+_MAX_ATTEMPTS = 4
+_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
+_RETRYABLE_EXCEPTIONS = (RateLimitError, InternalServerError, APIConnectionError, APITimeoutError)
+
+
+class ContextLengthError(Exception):
+    """Raised when a request exceeds the model's context window."""
 
 
 @dataclass(slots=True)
@@ -88,6 +107,20 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _is_context_length_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "context length",
+            "context_length",
+            "maximum context",
+            "too many tokens",
+            "reduce the length",
+        )
+    )
+
+
 class OpenAICompatibleClient:
     """Small Chat Completions adapter; orchestration remains in Agent."""
 
@@ -95,7 +128,7 @@ class OpenAICompatibleClient:
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
-            max_retries=2,
+            max_retries=0,
             timeout=60.0,
         )
         self._model = model
@@ -115,14 +148,55 @@ class OpenAICompatibleClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            emitted: list[bool] = [False]
+            try:
+                return await self._stream_once(
+                    request, on_text_delta, on_reasoning_delta, emitted
+                )
+            except (
+                ContextLengthError,
+                AuthenticationError,
+                PermissionDeniedError,
+                BadRequestError,
+            ):
+                raise
+            except _RETRYABLE_EXCEPTIONS as exc:
+                last_error = exc
+                if emitted[0] or attempt == _MAX_ATTEMPTS - 1:
+                    raise
+                await asyncio.sleep(_BACKOFF_SECONDS[attempt] + random.uniform(0.0, 0.5))
+        raise last_error  # pragma: no cover
+
+    async def _stream_once(
+        self,
+        request: dict[str, Any],
+        on_text_delta: TextDeltaCallback,
+        on_reasoning_delta: TextDeltaCallback | None,
+        emitted: list[bool],
+    ) -> AssistantReply:
         try:
             stream = await self._client.chat.completions.create(**request)
         except BadRequestError as exc:
             detail = str(exc).lower()
-            if "stream_options" not in detail and "include_usage" not in detail:
+            if "stream_options" in detail or "include_usage" in detail:
+                request.pop("stream_options", None)
+                stream = await self._client.chat.completions.create(**request)
+            elif _is_context_length_error(exc):
+                raise ContextLengthError(str(exc)) from exc
+            else:
                 raise
-            request.pop("stream_options")
-            stream = await self._client.chat.completions.create(**request)
+
+        async def text_delta(text: str) -> None:
+            emitted[0] = True
+            await on_text_delta(text)
+
+        async def reasoning_delta(text: str) -> None:
+            emitted[0] = True
+            if on_reasoning_delta is not None:
+                await on_reasoning_delta(text)
 
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
@@ -152,18 +226,18 @@ class OpenAICompatibleClient:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
-            reasoning_delta = getattr(delta, "reasoning_content", None)
-            if not isinstance(reasoning_delta, str):
-                reasoning_delta = getattr(delta, "reasoning", None)
-            if isinstance(reasoning_delta, str) and reasoning_delta:
-                reasoning_parts.append(reasoning_delta)
-                if on_reasoning_delta is not None:
-                    await on_reasoning_delta(reasoning_delta)
+            reasoning_content = getattr(delta, "reasoning_content", None)
+            if not isinstance(reasoning_content, str):
+                reasoning_content = getattr(delta, "reasoning", None)
+            if isinstance(reasoning_content, str) and reasoning_content:
+                reasoning_parts.append(reasoning_content)
+                await reasoning_delta(reasoning_content)
             if delta.content:
                 text_parts.append(delta.content)
-                await on_text_delta(delta.content)
+                await text_delta(delta.content)
 
             for call_delta in delta.tool_calls or []:
+                emitted[0] = True
                 index = call_delta.index
                 current = accumulated.setdefault(
                     index, {"id": "", "name": "", "arguments": ""}

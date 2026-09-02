@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import AgentConfig
 from .memory import CompactState, MemoryManager
-from .model import AssistantReply, ModelClientProtocol, TokenUsage, ToolCall
+from .model import AssistantReply, ContextLengthError, ModelClientProtocol, TokenUsage, ToolCall
 from .protocol import ProtocolEmitter, new_id
 from .tools import READ_ONLY_TOOLS, SYNC_READ_TOOLS, ToolRegistry, ToolResult
 
@@ -54,6 +54,8 @@ class TurnState:
     tool_calls: int = 0
     changed_files: set[str] = field(default_factory=set)
     recent_fingerprints: list[tuple[str, int]] = field(default_factory=list)
+    progress_epoch: int = 0
+    last_command_signature: str | None = None
     started_at: float = field(default_factory=time.monotonic)
     terminal: bool = False
 
@@ -164,12 +166,7 @@ class Agent:
                     turn,
                 )
 
-            reply = await self.model.complete(
-                await self.memory.build_request(self.messages, turn.changed_files),
-                self.tools.schemas,
-                on_delta,
-                on_reasoning_delta,
-            )
+            reply = await self._complete_with_retry(turn, on_delta, on_reasoning_delta)
             await self._pause_checkpoint()
             if self.persist_usage is not None:
                 await self.persist_usage(turn.turn_id, turn.step, reply.usage)
@@ -236,6 +233,23 @@ class Agent:
         info = await self.memory.force_compact(self.messages)
         await self._persist()
         return info
+
+    async def _complete_with_retry(
+        self,
+        turn: TurnState,
+        on_delta: Callable[[str], Awaitable[None]],
+        on_reasoning_delta: Callable[[str], Awaitable[None]],
+    ) -> AssistantReply:
+        request = await self.memory.build_request(self.messages, turn.changed_files)
+        try:
+            return await self.model.complete(
+                request, self.tools.schemas, on_delta, on_reasoning_delta
+            )
+        except ContextLengthError:
+            request = await self.memory.compact_request(self.messages, turn.changed_files)
+            return await self.model.complete(
+                request, self.tools.schemas, on_delta, on_reasoning_delta
+            )
 
     @staticmethod
     def _tool_message(tool_call_id: str, result: ToolResult) -> dict[str, Any]:
@@ -375,22 +389,33 @@ class Agent:
 
     def _record_fingerprint(self, turn: TurnState, call: ToolCall, result: ToolResult) -> None:
         turn.changed_files.update(result.changed_files)
+        if result.changed_files:
+            turn.progress_epoch += 1
+        if call.name == "run_command":
+            signature = json.dumps(result.data, sort_keys=True, ensure_ascii=False, default=str)
+            if (
+                turn.last_command_signature is not None
+                and signature != turn.last_command_signature
+            ):
+                turn.progress_epoch += 1
+            turn.last_command_signature = signature
         try:
             arguments = json.loads(call.arguments)
             if not isinstance(arguments, dict):
                 arguments = {}
         except (json.JSONDecodeError, ValueError):
             arguments = {}
-        fingerprint = (
-            call.name + ":" + json.dumps(arguments, sort_keys=True, ensure_ascii=False),
-            len(turn.changed_files),
-        )
-        turn.recent_fingerprints.append(fingerprint)
+        fingerprint = call.name + ":" + json.dumps(arguments, sort_keys=True, ensure_ascii=False)
+        turn.recent_fingerprints.append((fingerprint, turn.progress_epoch))
         turn.recent_fingerprints = turn.recent_fingerprints[-3:]
 
     @staticmethod
     def _is_repeated(turn: TurnState) -> bool:
-        return len(turn.recent_fingerprints) == 3 and len(set(turn.recent_fingerprints)) == 1
+        if len(turn.recent_fingerprints) < 3:
+            return False
+        fingerprints = {fingerprint for fingerprint, _ in turn.recent_fingerprints}
+        epochs = {epoch for _, epoch in turn.recent_fingerprints}
+        return len(fingerprints) == 1 and len(epochs) == 1
 
     async def _execute_call(self, turn: TurnState, call: ToolCall) -> ToolResult:
         turn.tool_calls += 1
