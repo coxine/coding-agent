@@ -129,7 +129,7 @@ Agent 需要补充信息时显示独立问题面板并接管输入焦点。Enter
 
 ### 5.9 `status`
 
-用户在空闲 Composer 中执行 `/status` 后显示只读状态面板。面板展示模型、目录、Conversation ID、Core Session ID、消息数、API 返回的最近一次输入/输出 token、Session 累计 token 和附加 metadata；Enter 或 Esc 关闭。Token 不在本地估算，缺失 usage 时明确提示供应商未返回。
+用户在空闲 Composer 中执行 `/status` 后显示只读状态面板。面板展示模型、目录、Conversation ID、Core Session ID、消息数、API 返回的最近一次与 Session 累计 token 分布，以及附加 metadata；Enter 或 Esc 关闭。分布使用堆叠条区分普通输入、缓存输入、普通输出、推理输出。配置 `AGENT_CONTEXT_WINDOW` 后，最近请求条额外显示剩余容量和占用比例；未配置时只展示已消耗 token 的构成。Token 不在本地估算，缺失 usage 时明确提示供应商未返回。
 
 ## 6. 组件结构
 

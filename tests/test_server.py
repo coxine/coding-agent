@@ -66,6 +66,7 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
         api_key="unused",
         base_url="https://example.invalid/v1",
         model="test-model",
+        context_window_tokens=128000,
     )
     server.conversation = Conversation(
         id="conv_00000000000000000000000000000000",
@@ -101,6 +102,7 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
     assert event["payload"]["model"] == "test-model"
     assert event["payload"]["context"]["requestChars"] == 800
     assert event["payload"]["tokenUsage"]["latest"]["promptTokens"] == 100
+    assert event["payload"]["tokenUsage"]["contextWindowTokens"] == 128000
     assert event["payload"]["metadata"]["tools"] == 2
     assert event["payload"]["metadata"]["userTurns"] == 1
 

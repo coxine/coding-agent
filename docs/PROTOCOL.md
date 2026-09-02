@@ -130,7 +130,8 @@ TUI                           Core
     "baseUrl": "https://example.com/v1",
     "options": {
       "maxSteps": 30,
-      "commandTimeoutMs": 30000
+      "commandTimeoutMs": 30000,
+      "contextWindowTokens": 128000
     }
   }
 }
@@ -140,6 +141,7 @@ TUI                           Core
 
 - `workspaceRoot` 必须是绝对路径。
 - API Key 不通过协议发送，Core 自己从环境变量读取。
+- `contextWindowTokens` 可选，优先于 `AGENT_CONTEXT_WINDOW`；它只提供模型容量 metadata，不触发本地 token 估算。
 - TUI 可以传递非敏感选项；Core 负责最终校验和应用默认值。
 
 ### 6.2 `submit_task`
@@ -356,6 +358,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
       "truncated": false
     },
     "tokenUsage": {
+      "contextWindowTokens": 128000,
       "requestCount": 3,
       "measuredRequests": 2,
       "unavailableRequests": 1,

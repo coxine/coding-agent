@@ -8,7 +8,12 @@ from typing import Any
 from dotenv import dotenv_values
 
 
-_MODEL_CONFIG_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "AGENT_MODEL"}
+_MODEL_CONFIG_KEYS = {
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "AGENT_MODEL",
+    "AGENT_CONTEXT_WINDOW",
+}
 
 
 class ConfigurationError(ValueError):
@@ -24,6 +29,7 @@ class AgentConfig:
     max_steps: int = 30
     command_timeout_ms: int = 30_000
     max_context_chars: int = 200_000
+    context_window_tokens: int | None = None
 
     @classmethod
     def from_initialize(cls, payload: dict[str, Any]) -> "AgentConfig":
@@ -70,6 +76,14 @@ class AgentConfig:
         context_chars = cls._bounded_int(
             options, "maxContextChars", 200_000, 20_000, 2_000_000
         )
+        context_window_tokens = cls._optional_bounded_int(
+            options.get("contextWindowTokens"),
+            os.environ.get("AGENT_CONTEXT_WINDOW"),
+            file_values.get("AGENT_CONTEXT_WINDOW"),
+            key="contextWindowTokens",
+            minimum=1_024,
+            maximum=10_000_000,
+        )
 
         return cls(
             workspace_root=workspace,
@@ -79,6 +93,7 @@ class AgentConfig:
             max_steps=max_steps,
             command_timeout_ms=timeout,
             max_context_chars=context_chars,
+            context_window_tokens=context_window_tokens,
         )
 
     @staticmethod
@@ -120,3 +135,26 @@ class AgentConfig:
         if not minimum <= value <= maximum:
             raise ConfigurationError(f"{key} must be between {minimum} and {maximum}")
         return value
+
+    @staticmethod
+    def _optional_bounded_int(
+        *values: Any,
+        key: str,
+        minimum: int,
+        maximum: int,
+    ) -> int | None:
+        for value in values:
+            if value is None or value == "":
+                continue
+            if isinstance(value, bool):
+                raise ConfigurationError(f"{key} must be an integer")
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ConfigurationError(f"{key} must be an integer") from exc
+            if str(parsed) != str(value).strip():
+                raise ConfigurationError(f"{key} must be an integer")
+            if not minimum <= parsed <= maximum:
+                raise ConfigurationError(f"{key} must be between {minimum} and {maximum}")
+            return parsed
+        return None

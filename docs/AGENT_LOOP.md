@@ -440,15 +440,9 @@ fingerprint = tool_name + canonical_json(arguments)
 + 当前 turn 的完整近期消息
 ```
 
-### 15.2 预算
+### 15.2 预算与容量 metadata
 
-Core 配置模型上下文上限和预留输出空间：
-
-```text
-输入预算 = 模型上下文上限 - 最大模型输出 - 安全余量
-```
-
-如果供应商没有可靠 tokenizer，第一版使用保守字符估算，并将估算逻辑集中在 `ContextManager`，方便之后替换。
+OpenAI 兼容协议的标准模型信息不保证返回上下文窗口上限。用户可通过 `AGENT_CONTEXT_WINDOW` 或初始化参数 `contextWindowTokens` 显式配置，用于 `/status` 将 API 实际 usage 与模型容量对比。当前版本不使用本地 tokenizer，也不依据该值估算下一次请求；发送前仍由 `ContextManager` 的字符上限执行保守历史裁剪。
 
 ### 15.3 优先级
 

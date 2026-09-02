@@ -6,6 +6,7 @@ import {matchingCommands, parseSlashCommand, SlashCommand} from './commands.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
 import {Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem} from './state.js';
+import {tokenBarSegments, TokenSegmentKind} from './token-bar.js';
 
 type AppProps = {
 	repositoryRoot: string;
@@ -330,6 +331,7 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 	const latest = report.tokenUsage.latest;
 	const totals = report.tokenUsage.totals;
+	const contextLimit = report.tokenUsage.contextWindowTokens;
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">coding-agent status</Text>
@@ -343,21 +345,20 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>API token usage</Text>
 				{latest?.available ? (
-					<>
-						<StatusRow label="Last context" value={`${formatNumber(latest.promptTokens)} tokens`} />
-						<StatusRow label="Last response" value={`${formatNumber(latest.completionTokens)} tokens`} />
-						<StatusRow label="Last total" value={`${formatNumber(latest.totalTokens)} tokens • turn step ${latest.step}`} />
-					</>
+					<TokenUsageChart
+						title="Last request"
+						usage={latest}
+						contextWindowTokens={contextLimit}
+						detail={`turn step ${latest.step}`}
+					/>
 				) : (
 					<StatusRow label="Last request" value={latest ? 'Provider did not return usage' : 'No model request yet'} />
 				)}
-				<StatusRow label="Session input" value={`${formatNumber(totals.promptTokens)} tokens`} />
-				<StatusRow label="Session output" value={`${formatNumber(totals.completionTokens)} tokens`} />
-				<StatusRow label="Session total" value={`${formatNumber(totals.totalTokens)} tokens`} />
-				{totals.cachedTokens > 0 && <StatusRow label="Cached input" value={`${formatNumber(totals.cachedTokens)} tokens`} />}
-				{totals.reasoningTokens > 0 && <StatusRow label="Reasoning" value={`${formatNumber(totals.reasoningTokens)} tokens`} />}
-				<StatusRow label="API requests" value={`${report.tokenUsage.measuredRequests} measured / ${report.tokenUsage.requestCount} total`} />
-				{report.tokenUsage.unavailableRequests > 0 && <StatusRow label="Unavailable" value={`${report.tokenUsage.unavailableRequests} request(s) without usage`} />}
+				{totals.totalTokens > 0 && <TokenUsageChart title="Session distribution" usage={totals} />}
+				<Text dimColor>
+					{report.tokenUsage.measuredRequests}/{report.tokenUsage.requestCount} requests measured
+					{report.tokenUsage.unavailableRequests > 0 ? ` • ${report.tokenUsage.unavailableRequests} unavailable` : ''}
+				</Text>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Metadata</Text>
@@ -367,6 +368,78 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 			</Box>
 			<HintLine hints={[{key: 'enter/esc', label: 'close'}]} />
 		</Box>
+	);
+}
+
+function TokenUsageChart({
+	title,
+	usage,
+	contextWindowTokens,
+	detail,
+}: {
+	title: string;
+	usage: {promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; reasoningTokens: number};
+	contextWindowTokens?: number;
+	detail?: string;
+}): React.ReactNode {
+	const used = usage.promptTokens + usage.completionTokens;
+	const percentage = contextWindowTokens
+		? Math.round((used / contextWindowTokens) * 1000) / 10
+		: undefined;
+	const capacity = contextWindowTokens
+		? `${formatNumber(used)} / ${formatNumber(contextWindowTokens)} tokens (${percentage}%)`
+		: `${formatNumber(used)} tokens`;
+	const segments = tokenBarSegments(usage, 42, contextWindowTokens);
+	return (
+		<Box flexDirection="column" marginTop={1}>
+			<Text>{title} <Text dimColor>• {capacity}{detail ? ` • ${detail}` : ''}</Text></Text>
+			<Text>
+				{'['}
+				{segments.map(segment => segment.width > 0 && (
+					<Text key={segment.kind} color={TOKEN_COLORS[segment.kind]}>
+						{(segment.kind === 'remaining' ? '░' : '█').repeat(segment.width)}
+					</Text>
+				))}
+				{']'}
+			</Text>
+			<TokenLegend usage={usage} showRemaining={Boolean(contextWindowTokens && used < contextWindowTokens)} />
+		</Box>
+	);
+}
+
+const TOKEN_COLORS: Record<TokenSegmentKind, 'blue' | 'cyan' | 'green' | 'magenta' | 'gray'> = {
+	input: 'blue',
+	cached: 'cyan',
+	output: 'green',
+	reasoning: 'magenta',
+	remaining: 'gray',
+};
+
+function TokenLegend({
+	usage,
+	showRemaining,
+}: {
+	usage: {promptTokens: number; completionTokens: number; cachedTokens: number; reasoningTokens: number};
+	showRemaining: boolean;
+}): React.ReactNode {
+	const cached = Math.min(usage.promptTokens, usage.cachedTokens);
+	const reasoning = Math.min(usage.completionTokens, usage.reasoningTokens);
+	const items = [
+		{kind: 'input' as const, label: 'input', value: Math.max(0, usage.promptTokens - cached)},
+		{kind: 'cached' as const, label: 'cached', value: cached},
+		{kind: 'output' as const, label: 'output', value: Math.max(0, usage.completionTokens - reasoning)},
+		{kind: 'reasoning' as const, label: 'reasoning', value: reasoning},
+	].filter(item => item.value > 0);
+	return (
+		<Text dimColor>
+			{items.map((item, index) => (
+				<React.Fragment key={item.kind}>
+					{index > 0 && '  '}
+					<Text color={TOKEN_COLORS[item.kind]}>■</Text> {item.label} {formatNumber(item.value)}
+				</React.Fragment>
+			))}
+			{showRemaining && <><Text color={TOKEN_COLORS.remaining}>  ░</Text> remaining</>}
+		</Text>
 	);
 }
 

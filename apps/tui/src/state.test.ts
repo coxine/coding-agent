@@ -55,6 +55,7 @@ test('status report stores context usage and metadata', () => {
 			conversationId: 'conv_1',
 			context: {totalChars: 1200, requestChars: 900, maxChars: 2000, messageCount: 8, requestMessageCount: 6, truncated: true},
 			tokenUsage: {
+				contextWindowTokens: 128000,
 				requestCount: 2,
 				measuredRequests: 2,
 				unavailableRequests: 0,
@@ -66,6 +67,7 @@ test('status report stores context usage and metadata', () => {
 	});
 	assert.equal(state.statusReport?.context.requestChars, 900);
 	assert.equal(state.statusReport?.tokenUsage.latest?.promptTokens, 120);
+	assert.equal(state.statusReport?.tokenUsage.contextWindowTokens, 128000);
 	assert.equal(state.statusReport?.tokenUsage.totals.completionTokens, 20);
 	assert.equal(state.statusReport?.metadata.maxSteps, 30);
 

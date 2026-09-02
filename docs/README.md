@@ -102,6 +102,7 @@ npm install
 export OPENAI_API_KEY="your-api-key"
 export OPENAI_BASE_URL="https://your-provider.example/v1"
 export AGENT_MODEL="your-model-name"
+export AGENT_CONTEXT_WINDOW="128000"
 ```
 
 | 环境变量 | 必填 | 说明 |
@@ -109,6 +110,7 @@ export AGENT_MODEL="your-model-name"
 | `OPENAI_API_KEY` | 是 | OpenAI 兼容接口的 API Key |
 | `OPENAI_BASE_URL` | 否 | API 地址，默认 `https://api.openai.com/v1` |
 | `AGENT_MODEL` | 是 | 需要调用的模型名称 |
+| `AGENT_CONTEXT_WINDOW` | 否 | 模型上下文窗口 token 上限，用于 `/status` 容量条；兼容协议通常无法自动提供 |
 
 仓库提供了 [.env.example](../.env.example) 作为变量模板。你可以在准备运行 `coding-agent` 的目标项目中创建 `.env`：
 
@@ -116,9 +118,10 @@ export AGENT_MODEL="your-model-name"
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://your-provider.example/v1
 AGENT_MODEL=your-model-name
+AGENT_CONTEXT_WINDOW=128000
 ```
 
-Core 只从 `.env` 选取上述三个配置项，不会把文件中的其他变量导入进程环境。配置优先级为：命令行参数 > 已导出的环境变量 > 工作区 `.env` > 默认值。不要提交包含真实凭据的 `.env`。
+Core 只从 `.env` 选取上述四个配置项，不会把文件中的其他变量导入进程环境。配置优先级为：显式启动配置 > 已导出的环境变量 > 工作区 `.env` > 默认值。不要提交包含真实凭据的 `.env`。
 
 ### 3. 启动
 

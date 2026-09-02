@@ -196,6 +196,12 @@ class CoreServer:
         if self.config is None or self.conversation is None or self.agent is None:
             await self._error("not_initialized", "core is not initialized")
             return
+        token_usage = (
+            self.session_store.usage_summary(self.conversation)
+            if self.session_store is not None
+            else {}
+        )
+        token_usage["contextWindowTokens"] = self.config.context_window_tokens
         await self.emitter.emit(
             "status_report",
             {
@@ -204,9 +210,7 @@ class CoreServer:
                 "coreSessionId": self.session_id,
                 "conversationId": self.conversation.id,
                 "context": self.agent.context_stats(),
-                "tokenUsage": self.session_store.usage_summary(self.conversation)
-                if self.session_store is not None
-                else None,
+                "tokenUsage": token_usage,
                 "metadata": {
                     "conversationTitle": self.conversation.title,
                     "titleSource": self.conversation.title_source,

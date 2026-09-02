@@ -55,6 +55,7 @@ export type StatusReport = {
 		truncated: boolean;
 	};
 	tokenUsage: {
+		contextWindowTokens?: number;
 		requestCount: number;
 		measuredRequests: number;
 		unavailableRequests: number;
@@ -402,6 +403,7 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 			truncated: Boolean(context.truncated),
 		},
 		tokenUsage: {
+			contextWindowTokens: optionalPositiveNumber(tokenUsage.contextWindowTokens),
 			requestCount: Number(tokenUsage.requestCount ?? 0),
 			measuredRequests: Number(tokenUsage.measuredRequests ?? 0),
 			unavailableRequests: Number(tokenUsage.unavailableRequests ?? 0),
@@ -413,6 +415,11 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 				['string', 'number', 'boolean'].includes(typeof entry[1])),
 		),
 	};
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+	const number = Number(value);
+	return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
 function tokenUsageRecord(value: Record<string, unknown>): TokenUsageRecord {

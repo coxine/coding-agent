@@ -10,23 +10,27 @@ from agent_coder.config import AgentConfig, ConfigurationError
 def test_config_reads_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setenv("AGENT_MODEL", "test-model")
+    monkeypatch.setenv("AGENT_CONTEXT_WINDOW", "128000")
     config = AgentConfig.from_initialize({"workspaceRoot": str(tmp_path)})
 
     assert config.workspace_root == tmp_path.resolve()
     assert config.model == "test-model"
     assert config.api_key == "secret"
+    assert config.context_window_tokens == 128000
 
 
 def test_config_reads_workspace_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("AGENT_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_CONTEXT_WINDOW", raising=False)
     monkeypatch.setenv("UNRELATED_EXISTING", "keep")
     (tmp_path / ".env").write_text(
         """OPENAI_API_KEY=dotenv-secret
 OPENAI_BASE_URL=https://gateway.example/v1
 AGENT_MODEL=dotenv-model
 UNRELATED_SECRET=must-not-be-exported
+AGENT_CONTEXT_WINDOW=64000
 """,
         encoding="utf-8",
     )
@@ -36,6 +40,7 @@ UNRELATED_SECRET=must-not-be-exported
     assert config.api_key == "dotenv-secret"
     assert config.base_url == "https://gateway.example/v1"
     assert config.model == "dotenv-model"
+    assert config.context_window_tokens == 64000
     assert "UNRELATED_SECRET" not in os.environ
 
 
@@ -88,3 +93,20 @@ def test_config_rejects_relative_workspace(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     with pytest.raises(ConfigurationError, match="absolute"):
         AgentConfig.from_initialize({"workspaceRoot": ".", "model": "test"})
+
+
+def test_initialize_context_window_overrides_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("AGENT_CONTEXT_WINDOW", "64000")
+
+    config = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "test",
+            "options": {"contextWindowTokens": 200000},
+        }
+    )
+
+    assert config.context_window_tokens == 200000
