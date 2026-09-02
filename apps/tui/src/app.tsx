@@ -274,7 +274,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 function Header({ model, workspace, conversation, status, step }: { model: string; workspace: string; conversation: string; status: string; step: number }): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
-			<Text bold color="cyan">coding-agent</Text>
+			<Text bold color="cyan">Open-Kodex</Text>
 			<Text dimColor>{model || 'model not configured'} • {shortPath(workspace)} • {conversation} • {step ? `step ${step} • ` : ''}{status}</Text>
 		</Box>
 	);
@@ -389,7 +389,7 @@ function StatusPanel({ report }: { report: StatusReport }): React.ReactNode {
 	const contextLimit = report.tokenUsage.contextWindowTokens;
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
-			<Text bold color="cyan">coding-agent status</Text>
+			<Text bold color="cyan">Open-Kodex status</Text>
 			<Box flexDirection="column">
 				<StatusRow label="Model" value={report.model} />
 				<StatusRow label="Directory" value={shortPath(report.workspaceRoot)} />
