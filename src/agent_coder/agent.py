@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import AgentConfig
-from .context import ContextManager
+from .memory import CompactState, MemoryManager
 from .model import AssistantReply, ModelClientProtocol, TokenUsage, ToolCall
 from .protocol import ProtocolEmitter, new_id
 from .tools import ToolRegistry, ToolResult
@@ -16,7 +16,7 @@ from .tools import ToolRegistry, ToolResult
 
 ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
 UserInputCallback = Callable[[str, str], Awaitable[str | None]]
-PersistCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
+PersistCallback = Callable[[list[dict[str, Any]], dict[str, Any]], Awaitable[None]]
 UsageCallback = Callable[[str, int, TokenUsage | None], Awaitable[None]]
 PauseCallback = Callable[[], Awaitable[None]]
 
@@ -63,6 +63,7 @@ class Agent:
         request_approval: ApprovalCallback,
         request_user_input: UserInputCallback | None = None,
         history_messages: list[dict[str, Any]] | None = None,
+        compact_state: dict[str, Any] | None = None,
         persist_messages: PersistCallback | None = None,
         persist_usage: UsageCallback | None = None,
         wait_until_resumed: PauseCallback | None = None,
@@ -77,7 +78,11 @@ class Agent:
         self.persist_messages = persist_messages
         self.persist_usage = persist_usage
         self.wait_until_resumed = wait_until_resumed
-        self.context = ContextManager(config.max_context_chars)
+        self.memory = MemoryManager(
+            config.max_context_chars,
+            summarize=getattr(model, "summarize", None),
+            state=CompactState.from_dict(compact_state or {}),
+        )
         self.messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -152,7 +157,7 @@ class Agent:
                 )
 
             reply = await self.model.complete(
-                self.context.build_request(self.messages),
+                await self.memory.build_request(self.messages, turn.changed_files),
                 self.tools.schemas,
                 on_delta,
                 on_reasoning_delta,
@@ -235,14 +240,14 @@ class Agent:
 
     async def _persist(self) -> None:
         if self.persist_messages is not None:
-            await self.persist_messages(self.messages[1:])
+            await self.persist_messages(self.messages[1:], self.memory.state.to_dict())
 
     async def _pause_checkpoint(self) -> None:
         if self.wait_until_resumed is not None:
             await self.wait_until_resumed()
 
-    def context_stats(self) -> dict[str, int | bool]:
-        return self.context.stats(self.messages)
+    def context_stats(self) -> dict[str, Any]:
+        return self.memory.stats(self.messages)
 
     @staticmethod
     def _tool_message(tool_call_id: str, result: ToolResult) -> dict[str, Any]:

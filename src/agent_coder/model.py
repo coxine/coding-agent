@@ -69,6 +69,24 @@ class ModelClientProtocol(Protocol):
         on_reasoning_delta: TextDeltaCallback | None = None,
     ) -> AssistantReply: ...
 
+    async def summarize(self, messages: list[dict[str, Any]]) -> dict[str, Any] | None: ...
+
+
+def _parse_json_object(text: str) -> dict[str, Any] | None:
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        candidate = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
 
 class OpenAICompatibleClient:
     """Small Chat Completions adapter; orchestration remains in Agent."""
@@ -179,3 +197,19 @@ class OpenAICompatibleClient:
             reasoning="".join(reasoning_parts),
             usage=usage,
         )
+
+    async def summarize(self, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                stream=False,
+            )
+        except Exception:
+            return None
+        if not response.choices:
+            return None
+        content = response.choices[0].message.content
+        if not isinstance(content, str):
+            return None
+        return _parse_json_object(content)

@@ -147,10 +147,15 @@ class CoreServer:
             self.config.workspace_root, command_timeout_ms=self.config.command_timeout_ms
         )
 
-        async def persist(messages: list[dict[str, Any]]) -> None:
+        async def persist(messages: list[dict[str, Any]], compact_state: dict[str, Any]) -> None:
             if self.session_store is not None and self.conversation is conversation:
                 previous_title = conversation.title
-                await asyncio.to_thread(self.session_store.update_messages, conversation, messages)
+                await asyncio.to_thread(
+                    self.session_store.update_messages,
+                    conversation,
+                    messages,
+                    compact_state,
+                )
                 if conversation.title != previous_title:
                     await self.emitter.emit(
                         "conversation_updated",
@@ -181,6 +186,7 @@ class CoreServer:
             request_approval=self._request_approval,
             request_user_input=self._request_user_input,
             history_messages=conversation.messages,
+            compact_state=conversation.compact_state,
             persist_messages=persist,
             persist_usage=persist_usage,
             wait_until_resumed=self._wait_until_resumed,

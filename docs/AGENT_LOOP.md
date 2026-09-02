@@ -448,25 +448,48 @@ fingerprint = tool_name + canonical_json(arguments)
 
 OpenAI 兼容协议的标准模型信息不保证返回上下文窗口上限。Core 默认按 128,000 token 展示，用户可通过 `AGENT_CONTEXT_WINDOW` 或初始化参数 `contextWindowTokens` 覆盖，用于 `/status` 将 API 实际 usage 与模型容量对比。当前版本不使用本地 tokenizer，因此也不依据 token 直接估算下一次请求；`ContextManager` 的实际裁剪上限（字符）默认由该 token 窗口按每 token 约 4 字符的启发式推导（`contextWindowTokens × 4`，并夹在 20,000–2,000,000 字符之间）。仅在初始化参数显式传入 `maxContextChars` 时才覆盖该派生值。
 
-### 15.3 优先级
+### 15.3 内存分层
 
-从最不可删除到最可压缩：
+上下文按信息价值分层，compact 时不再一视同仁：
 
-1. 系统提示词和工具定义。
-2. 当前用户原始任务。
-3. 尚未闭合的 assistant tool calls 与 tool results。
-4. 当前 turn 最近若干 step。
-5. 当前 turn 较早的大型工具结果。
-6. 已完成的历史 turn。
+```text
+L0 immutable instructions   系统提示词 / 编码规则（永不删除）
+L1 task memory              目标、约束、验收标准
+L2 working state            当前 plan、修改文件、test 状态
+L3 semantic repo context    相关文件 / symbol 引用（不存代码全文）
+L4 recent trajectory        最近若干轮 tool calls + messages
+L5 disposable observations  logs / 搜索结果 / 旧文件全文
+```
 
-### 15.4 第一版压缩方式
+核心原则：**保留状态，丢弃轨迹**（preserve state, discard trajectory）；Repository 是代码事实的 source of truth，summary 只存 `src/config.ts::parseConfig` 之类的引用，需要时重新 `read_file`/`git diff` 获取最新代码，避免 summary 里的代码 stale。
 
-- 工具自身先限制文件、搜索、命令和 diff 输出。
-- 较早的超长 tool result 替换为确定性摘要，保留工具名、参数摘要、成功状态、关键路径、退出码和截断说明。
-- 已完成旧 turn 只保留用户请求和最终回答的简短内容；不进行额外模型摘要调用。
-- 当前 turn 最近消息保持原样，避免摘要遗漏正在解决的问题。
+### 15.4 自动 compact
 
-第一版不让模型总结自己的隐藏推理，只压缩可观察的工具事实和已完成对话。
+`MemoryManager` 维护一个 `CompactState`（结构化状态摘要）与完整的原始消息历史（非破坏：磁盘仍存全文，compact 只作用于发送给模型的请求视图）。请求大小超过触发阈值后执行 pipeline：
+
+```text
+1. drop low-value tool outputs   删除 list_directory/git_status/git_diff 等一次性状态输出
+2. deduplicate observations      按工具名+参数+结果摘要去重
+3. collapse completed trajectories  把旧 tool result 的 data（文件内容/日志/diff）
+                                     压缩为 name + summary + error + changed_files
+4. extract durable state         确定性更新 modified_files / relevant_files / validation
+5. summarize (schema-constrained LLM)  仅合成 goal/constraints/confirmed_facts/
+                                       decisions/rejected_approaches/next_steps 等结论
+6. keep recent raw turns         保留最近若干消息组与未闭合 tool 组原文
+7. rehydrate from repository     需要时重新读取代码，而非长期缓存
+```
+
+第 5 步使用 schema 约束的 JSON 摘要（字段固定），要求保留 negative constraints、用户纠正、未解决的 bug、API contract、失败的 test；返回非法或解析失败时回退为保留原文（fail-open），不丢失信息。
+
+预算采用三档水位（相对字符上限）：
+
+```text
+soft    = 65%   compact 后目标水位
+trigger = 70%   触发 compact
+hard    = 85%   单次请求硬上限
+```
+
+留足 execution headroom，避免单个大工具输出（5k 文件、10k 编译日志）直接顶满上下文。
 
 ### 15.5 结构完整性
 

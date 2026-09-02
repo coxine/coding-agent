@@ -143,3 +143,47 @@ async def test_client_falls_back_when_provider_rejects_usage_option() -> None:
     assert len(completions.arguments) == 2
     assert "stream_options" not in completions.arguments[1]
     assert reply.usage is None
+
+
+@pytest.mark.asyncio
+async def test_summarize_returns_parsed_dict() -> None:
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+
+    async def fake_create(**arguments):
+        del arguments
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"goal": "fix parser", "constraints": ["no deps"]}')
+                )
+            ]
+        )
+
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    result = await client.summarize([{"role": "user", "content": "hi"}])
+
+    assert result == {"goal": "fix parser", "constraints": ["no deps"]}
+
+
+@pytest.mark.asyncio
+async def test_summarize_returns_none_on_invalid_json() -> None:
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+
+    async def fake_create(**arguments):
+        del arguments
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="not a json object"))]
+        )
+
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    assert await client.summarize([{"role": "user", "content": "hi"}]) is None

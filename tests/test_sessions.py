@@ -132,3 +132,19 @@ def test_transcript_omits_tools_and_empty_assistant_messages(tmp_path) -> None:
         {"role": "user", "content": "Inspect it"},
         {"role": "assistant", "content": "It is valid."},
     ]
+
+
+def test_compact_state_round_trips_and_defaults(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.update_messages(
+        conversation,
+        [{"role": "user", "content": "Fix the parser"}],
+        compact_state={"goal": "Fix the parser", "constraints": ["no deps"]},
+    )
+
+    restored = store.load(conversation.id)
+    assert restored.compact_state == {"goal": "Fix the parser", "constraints": ["no deps"]}
+
+    legacy = store.create()
+    assert legacy.compact_state == {}

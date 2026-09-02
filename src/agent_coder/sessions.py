@@ -31,6 +31,7 @@ class Conversation:
     messages: list[dict[str, Any]]
     title_source: str = "auto"
     usage_records: list[dict[str, Any]] = field(default_factory=list)
+    compact_state: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -85,9 +86,14 @@ class SessionStore:
         return self._read(path)
 
     def update_messages(
-        self, conversation: Conversation, messages: list[dict[str, Any]]
+        self,
+        conversation: Conversation,
+        messages: list[dict[str, Any]],
+        compact_state: dict[str, Any] | None = None,
     ) -> Conversation:
         conversation.messages = deepcopy(messages)
+        if compact_state is not None:
+            conversation.compact_state = deepcopy(compact_state)
         conversation.updated_at = _now()
         if conversation.title_source == "auto":
             conversation.title = self._title(messages)
@@ -161,6 +167,7 @@ class SessionStore:
             "titleSource": conversation.title_source,
             "messages": conversation.messages,
             "usage": conversation.usage_records,
+            "compactState": conversation.compact_state,
         }
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{conversation.id}.", suffix=".tmp", dir=self.directory
@@ -206,6 +213,7 @@ class SessionStore:
         updated_at = data.get("updatedAt")
         title_source = data.get("titleSource", "auto")
         usage_records = data.get("usage", [])
+        compact_state = data.get("compactState", {})
         if not all(isinstance(value, str) and value for value in (title, created_at, updated_at)):
             raise ValueError("invalid conversation metadata")
         if title_source not in {"auto", "custom"}:
@@ -214,6 +222,8 @@ class SessionStore:
             SessionStore._valid_usage_record(record) for record in usage_records
         ):
             raise ValueError("invalid conversation usage records")
+        if not isinstance(compact_state, dict):
+            raise ValueError("invalid conversation compact state")
         return Conversation(
             conversation_id,
             title,
@@ -222,6 +232,7 @@ class SessionStore:
             deepcopy(messages),
             title_source,
             deepcopy(usage_records),
+            deepcopy(compact_state),
         )
 
     @staticmethod

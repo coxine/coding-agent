@@ -30,6 +30,10 @@ class FakeModel:
             await on_text_delta(reply.content)
         return reply
 
+    async def summarize(self, messages):
+        del messages
+        return None
+
 
 def config(tmp_path: Path) -> AgentConfig:
     return AgentConfig(
@@ -220,7 +224,8 @@ async def test_agent_restores_history_and_persists_completed_turn(tmp_path) -> N
         del tool_call_id, payload
         return False
 
-    async def persist(messages: list[dict[str, Any]]) -> None:
+    async def persist(messages: list[dict[str, Any]], state: dict[str, Any]) -> None:
+        del state
         snapshots.append([dict(message) for message in messages])
 
     history = [
