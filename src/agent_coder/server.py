@@ -83,6 +83,8 @@ class CoreServer:
             await self._switch_session(message)
         elif message_type == "create_session":
             await self._create_session(message)
+        elif message_type == "rename_session":
+            await self._rename_session(message)
         elif message_type == "shutdown":
             await self._shutdown(emit_complete=True)
         else:
@@ -114,6 +116,7 @@ class CoreServer:
                 "model": config.model,
                 "conversationId": self.conversation.id,
                 "conversationTitle": self.conversation.title,
+                "titleSource": self.conversation.title_source,
                 "transcript": self.session_store.transcript(self.conversation.messages),
                 "capabilities": {
                     "streaming": True,
@@ -147,6 +150,7 @@ class CoreServer:
                         {
                             "conversationId": conversation.id,
                             "conversationTitle": conversation.title,
+                            "titleSource": conversation.title_source,
                         },
                         session_id=self.session_id,
                     )
@@ -191,6 +195,7 @@ class CoreServer:
                 "context": self.agent.context_stats(),
                 "metadata": {
                     "conversationTitle": self.conversation.title,
+                    "titleSource": self.conversation.title_source,
                     "createdAt": self.conversation.created_at,
                     "updatedAt": self.conversation.updated_at,
                     "userTurns": self.conversation.summary()["messageCount"],
@@ -233,6 +238,29 @@ class CoreServer:
         self.agent = self._build_agent(self.conversation)
         await self._emit_conversation("conversation_created")
 
+    async def _rename_session(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message) or not await self._can_change_conversation():
+            return
+        name = message["payload"].get("name")
+        if not isinstance(name, str):
+            await self._error("invalid_message", "payload.name must be a string")
+            return
+        assert self.session_store is not None and self.conversation is not None
+        try:
+            await asyncio.to_thread(self.session_store.rename, self.conversation, name)
+        except ValueError as exc:
+            await self._error("invalid_message", str(exc))
+            return
+        await self.emitter.emit(
+            "conversation_updated",
+            {
+                "conversationId": self.conversation.id,
+                "conversationTitle": self.conversation.title,
+                "titleSource": self.conversation.title_source,
+            },
+            session_id=self.session_id,
+        )
+
     async def _can_change_conversation(self) -> bool:
         if self.active_task and not self.active_task.done():
             await self._error("turn_already_running", "cannot change sessions while a turn is running")
@@ -246,6 +274,7 @@ class CoreServer:
             {
                 "conversationId": self.conversation.id,
                 "conversationTitle": self.conversation.title,
+                "titleSource": self.conversation.title_source,
                 "transcript": self.session_store.transcript(self.conversation.messages),
             },
             session_id=self.session_id,

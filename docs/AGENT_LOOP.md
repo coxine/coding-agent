@@ -13,9 +13,9 @@
 一次 Agent Core 进程生命周期对应协议中的 `sessionId`。一个工作区可以保存多个 Conversation，每个 Conversation 有独立 `conversationId` 和消息历史。Core Session 保存运行时配置、工具注册表与当前活动 Conversation；Conversation 保存：
 
 - 对话消息历史。
-- 标题、创建时间和更新时间。
+- 展示名称、名称来源（`auto` / `custom`）、创建时间和更新时间。
 
-Conversation 持久化在工作区 `.coding-agent/sessions/`。启动时加载更新时间最新的一项；恢复时使用当前配置重新生成 system message，再追加保存的 user、assistant 与 tool 消息。持久化点包括用户消息加入后、一个 assistant tool-call 批次取得全部 tool result 后，以及最终 assistant 消息完成后，避免写入缺少对应 tool result 的中间结构。
+Conversation 持久化在工作区 `.coding-agent/sessions/`。启动时加载更新时间最新的一项；恢复时使用当前配置重新生成 system message，再追加保存的 user、assistant 与 tool 消息。第一条 prompt 生成自动展示名称；用户重命名后名称来源变为 `custom`，后续持久化不再覆盖。持久化点包括用户消息加入后、一个 assistant tool-call 批次取得全部 tool result 后，以及最终 assistant 消息完成后，避免写入缺少对应 tool result 的中间结构。
 
 ### 2.2 Turn
 

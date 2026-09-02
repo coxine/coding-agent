@@ -29,6 +29,7 @@ class Conversation:
     created_at: str
     updated_at: str
     messages: list[dict[str, Any]]
+    title_source: str = "auto"
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -37,6 +38,7 @@ class Conversation:
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             "messageCount": sum(1 for message in self.messages if message.get("role") == "user"),
+            "titleSource": self.title_source,
         }
 
 
@@ -86,7 +88,20 @@ class SessionStore:
     ) -> Conversation:
         conversation.messages = deepcopy(messages)
         conversation.updated_at = _now()
-        conversation.title = self._title(messages)
+        if conversation.title_source == "auto":
+            conversation.title = self._title(messages)
+        self.save(conversation)
+        return conversation
+
+    def rename(self, conversation: Conversation, title: str) -> Conversation:
+        normalized = self._normalize_title(title)
+        if not normalized:
+            raise ValueError("session name must not be empty")
+        if len(normalized) > 80:
+            raise ValueError("session name must not exceed 80 characters")
+        conversation.title = normalized
+        conversation.title_source = "custom"
+        conversation.updated_at = _now()
         self.save(conversation)
         return conversation
 
@@ -99,6 +114,7 @@ class SessionStore:
             "title": conversation.title,
             "createdAt": conversation.created_at,
             "updatedAt": conversation.updated_at,
+            "titleSource": conversation.title_source,
             "messages": conversation.messages,
         }
         descriptor, temporary_name = tempfile.mkstemp(
@@ -143,9 +159,19 @@ class SessionStore:
         title = data.get("title")
         created_at = data.get("createdAt")
         updated_at = data.get("updatedAt")
+        title_source = data.get("titleSource", "auto")
         if not all(isinstance(value, str) and value for value in (title, created_at, updated_at)):
             raise ValueError("invalid conversation metadata")
-        return Conversation(conversation_id, title, created_at, updated_at, deepcopy(messages))
+        if title_source not in {"auto", "custom"}:
+            raise ValueError("invalid conversation title source")
+        return Conversation(
+            conversation_id,
+            title,
+            created_at,
+            updated_at,
+            deepcopy(messages),
+            title_source,
+        )
 
     @staticmethod
     def _valid_message(message: Any) -> bool:
@@ -159,7 +185,14 @@ class SessionStore:
     def _title(messages: list[dict[str, Any]]) -> str:
         for message in messages:
             if message.get("role") == "user" and isinstance(message.get("content"), str):
-                normalized = " ".join(message["content"].split())
+                normalized = SessionStore._normalize_title(message["content"])
                 if normalized:
                     return normalized[:57] + "..." if len(normalized) > 60 else normalized
         return "New session"
+
+    @staticmethod
+    def _normalize_title(value: str) -> str:
+        printable = "".join(
+            character for character in value if character.isprintable() or character.isspace()
+        )
+        return " ".join(printable.split())

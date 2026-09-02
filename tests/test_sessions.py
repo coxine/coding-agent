@@ -23,7 +23,41 @@ def test_session_round_trip_and_latest_order(tmp_path) -> None:
     summaries = store.list()
     assert summaries[0]["id"] == second.id
     assert summaries[1]["title"] == "Fix the parser"
+    assert summaries[1]["titleSource"] == "auto"
     assert store.load(first.id).messages[-1]["content"] == "Done."
+
+
+def test_custom_session_name_survives_later_messages(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.update_messages(conversation, [{"role": "user", "content": "First prompt"}])
+    assert conversation.title == "First prompt"
+    assert conversation.title_source == "auto"
+
+    store.rename(conversation, "  Parser   work  ")
+    store.update_messages(
+        conversation,
+        [
+            {"role": "user", "content": "First prompt"},
+            {"role": "assistant", "content": "Done"},
+            {"role": "user", "content": "Another prompt"},
+        ],
+    )
+
+    restored = store.load(conversation.id)
+    assert restored.title == "Parser work"
+    assert restored.title_source == "custom"
+
+
+def test_legacy_session_without_title_source_loads_as_auto(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    path = store.directory / f"{conversation.id}.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("titleSource")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.load(conversation.id).title_source == "auto"
 
 
 def test_session_files_are_private_and_atomic_temps_are_cleaned(tmp_path) -> None:

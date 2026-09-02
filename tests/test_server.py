@@ -10,7 +10,7 @@ import pytest
 from agent_coder.config import AgentConfig
 from agent_coder.protocol import ProtocolEmitter
 from agent_coder.server import CoreServer
-from agent_coder.sessions import Conversation
+from agent_coder.sessions import Conversation, SessionStore
 
 
 @pytest.mark.asyncio
@@ -94,3 +94,22 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
     assert event["payload"]["context"]["requestChars"] == 800
     assert event["payload"]["metadata"]["tools"] == 2
     assert event["payload"]["metadata"]["userTurns"] == 1
+
+
+@pytest.mark.asyncio
+async def test_core_can_rename_current_session(tmp_path) -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+    server.session_store = SessionStore(tmp_path)
+    server.conversation = server.session_store.create()
+
+    await server._rename_session(
+        {"sessionId": "sess_test", "payload": {"name": "Parser cleanup"}}
+    )
+
+    event = json.loads(output.getvalue().splitlines()[0])
+    assert event["type"] == "conversation_updated"
+    assert event["payload"]["conversationTitle"] == "Parser cleanup"
+    assert event["payload"]["titleSource"] == "custom"
+    assert server.session_store.load(server.conversation.id).title == "Parser cleanup"

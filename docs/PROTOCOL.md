@@ -243,6 +243,20 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 请求在当前工作区新建空白 Conversation 并立即切换。payload 为空；存在活动 turn 时拒绝。
 
+### 6.7.1 `rename_session`
+
+修改当前 Conversation 的展示名称：
+
+```json
+{
+  "type": "rename_session",
+  "sessionId": "sess_1",
+  "payload": {"name": "Parser cleanup"}
+}
+```
+
+名称规范化连续空白后必须为 1–80 个字符。重命名只允许在没有活动 turn 时进行；成功后名称来源变为 `custom`，Core 发送 `conversation_updated`。
+
 ### 6.8 `shutdown`
 
 请求正常关闭 Core：
@@ -305,7 +319,8 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
       "title": "修复价格计算精度问题",
       "createdAt": "2026-08-27T08:00:00.000000Z",
       "updatedAt": "2026-08-27T08:04:00.000000Z",
-      "messageCount": 1
+      "messageCount": 1,
+      "titleSource": "auto"
     }]
   }
 }
@@ -317,7 +332,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 ### 7.1.3 `conversation_updated`
 
-首次用户消息使默认标题发生变化时发送，payload 包含 `conversationId` 和新的 `conversationTitle`，TUI 据此刷新顶部标题。
+首次用户消息使自动标题发生变化，或用户执行 `rename_session` 时发送。payload 包含 `conversationId`、新的 `conversationTitle` 和可选的 `titleSource`。`titleSource` 为 `auto` 或 `custom`；自定义名称不会被后续 prompt 覆盖。
 
 ### 7.1.4 `status_report`
 

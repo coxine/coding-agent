@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 import {randomUUID} from 'node:crypto';
 import {CoreClient} from './core-client.js';
-import {matchingCommands, SlashCommand} from './commands.js';
+import {matchingCommands, parseSlashCommand, SlashCommand} from './commands.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
 import {Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem} from './state.js';
@@ -162,8 +162,12 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 				return;
 			}
 			if (key.return && commands[commandChoice]) {
-				runSlashCommand(commands[commandChoice].name, client);
-				setInput('');
+				const command = commands[commandChoice];
+				if (command.name === '/rename') setInput('/rename ');
+				else {
+					runSlashCommand(command.name, '', client);
+					setInput('');
+				}
 				return;
 			}
 		}
@@ -176,7 +180,12 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			const text = input.trim();
 			if (!text) return;
 			if (text.startsWith('/')) {
-				dispatch({type: 'notice', message: `Unknown command: ${text}`, level: 'error'});
+				const invocation = parseSlashCommand(text);
+				if (!invocation) dispatch({type: 'notice', message: `Unknown command: ${text}`, level: 'error'});
+				else {
+					const error = runSlashCommand(invocation.command.name, invocation.argument, client);
+					if (error) dispatch({type: 'notice', message: error, level: 'error'});
+				}
 				setInput('');
 				return;
 			}
@@ -445,7 +454,13 @@ function formatDate(value: string): string {
 	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function runSlashCommand(name: string, client: CoreClient): void {
+function runSlashCommand(name: string, argument: string, client: CoreClient): string | undefined {
+	if (name === '/rename') {
+		if (!argument) return 'Usage: /rename <name>';
+		client.renameSession(argument);
+		return;
+	}
+	if (argument) return `${name} does not accept arguments.`;
 	if (name === '/session') client.listSessions();
 	if (name === '/status') client.requestStatus();
 }
