@@ -136,6 +136,7 @@ class SessionStore:
             "latest": deepcopy(conversation.usage_records[-1])
             if conversation.usage_records
             else None,
+            "latestMeasured": deepcopy(available[-1]) if available else None,
             "totals": {
                 key: sum(int(record.get(key, 0)) for record in available)
                 for key in (

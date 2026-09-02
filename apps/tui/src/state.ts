@@ -60,6 +60,7 @@ export type StatusReport = {
 		measuredRequests: number;
 		unavailableRequests: number;
 		latest?: TokenUsageRecord;
+		latestMeasured?: TokenUsageRecord;
 		totals: TokenTotals;
 	};
 	metadata: Record<string, string | number | boolean>;
@@ -388,6 +389,10 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 	const latest = latestValue && typeof latestValue === 'object'
 		? tokenUsageRecord(asRecord(latestValue))
 		: undefined;
+	const latestMeasuredValue = tokenUsage.latestMeasured;
+	const latestMeasured = latestMeasuredValue && typeof latestMeasuredValue === 'object'
+		? tokenUsageRecord(asRecord(latestMeasuredValue))
+		: undefined;
 	const metadata = asRecord(payload.metadata);
 	return {
 		model: String(payload.model ?? ''),
@@ -408,6 +413,7 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 			measuredRequests: Number(tokenUsage.measuredRequests ?? 0),
 			unavailableRequests: Number(tokenUsage.unavailableRequests ?? 0),
 			latest,
+			latestMeasured,
 			totals: tokenTotals(asRecord(tokenUsage.totals)),
 		},
 		metadata: Object.fromEntries(

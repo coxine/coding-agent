@@ -10,8 +10,8 @@ test('token bar divides input, cached, output, reasoning, and remaining capacity
 	);
 
 	assert.deepEqual(segments.map(segment => segment.value), [60, 20, 15, 5, 100]);
+	assert.equal(segments.find(segment => segment.kind === 'remaining')?.width, 20);
 	assert.equal(segments.reduce((sum, segment) => sum + segment.width, 0), 40);
-	assert.ok(segments.every(segment => segment.value === 0 || segment.width > 0));
 });
 
 test('token bar uses consumed tokens as scale when context limit is unknown', () => {

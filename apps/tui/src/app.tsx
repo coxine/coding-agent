@@ -329,7 +329,7 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 }
 
 function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
-	const totals = report.tokenUsage.totals;
+	const latest = report.tokenUsage.latestMeasured;
 	const contextLimit = report.tokenUsage.contextWindowTokens;
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
@@ -342,10 +342,10 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 			</Box>
 			<Box flexDirection="column">
 				<Text bold>API token usage</Text>
-				{totals.totalTokens > 0 ? (
+				{latest?.available ? (
 					<TokenUsageChart
 						title="Session distribution"
-						usage={totals}
+						usage={latest}
 						contextWindowTokens={contextLimit}
 					/>
 				) : (

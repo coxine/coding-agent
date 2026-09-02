@@ -36,25 +36,21 @@ function allocateWidths(values: number[], width: number): number[] {
 	const active = values.map((value, index) => ({value, index})).filter(item => item.value > 0);
 	if (availableWidth === 0 || active.length === 0) return result;
 
-	let remainingWidth = availableWidth;
-	if (availableWidth >= active.length) {
-		for (const item of active) result[item.index] = 1;
-		remainingWidth -= active.length;
-	}
 	const total = active.reduce((sum, item) => sum + item.value, 0);
 	const shares = active.map(item => ({
 		...item,
-		exact: (item.value / total) * remainingWidth,
+		exact: (item.value / total) * availableWidth,
 	}));
+	let allocated = 0;
 	for (const share of shares) {
 		const whole = Math.floor(share.exact);
 		result[share.index] += whole;
-		remainingWidth -= whole;
+		allocated += whole;
 	}
 	shares.sort((left, right) =>
 		(right.exact % 1) - (left.exact % 1) || right.value - left.value,
 	);
-	for (let index = 0; index < remainingWidth; index += 1) {
+	for (let index = 0; index < availableWidth - allocated; index += 1) {
 		result[shares[index % shares.length]!.index] += 1;
 	}
 	return result;

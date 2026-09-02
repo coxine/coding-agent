@@ -60,6 +60,7 @@ test('status report stores context usage and metadata', () => {
 				measuredRequests: 2,
 				unavailableRequests: 0,
 				latest: {available: true, recordedAt: 'now', turnId: 'turn_1', step: 2, promptTokens: 120, completionTokens: 8, totalTokens: 128},
+				latestMeasured: {available: true, recordedAt: 'now', turnId: 'turn_1', step: 2, promptTokens: 120, completionTokens: 8, totalTokens: 128},
 				totals: {promptTokens: 200, completionTokens: 20, totalTokens: 220},
 			},
 			metadata: {maxSteps: 30, conversationTitle: 'Parser', titleSource: 'custom', persistedMessages: 8},
@@ -67,6 +68,7 @@ test('status report stores context usage and metadata', () => {
 	});
 	assert.equal(state.statusReport?.context.requestChars, 900);
 	assert.equal(state.statusReport?.tokenUsage.latest?.promptTokens, 120);
+	assert.equal(state.statusReport?.tokenUsage.latestMeasured?.promptTokens, 120);
 	assert.equal(state.statusReport?.tokenUsage.contextWindowTokens, 128000);
 	assert.equal(state.statusReport?.tokenUsage.totals.completionTokens, 20);
 	assert.equal(state.statusReport?.metadata.maxSteps, 30);

@@ -89,6 +89,7 @@ def test_session_records_exact_usage_per_model_request(tmp_path) -> None:
     assert summary["measuredRequests"] == 2
     assert summary["unavailableRequests"] == 1
     assert summary["latest"]["promptTokens"] == 150
+    assert summary["latestMeasured"]["promptTokens"] == 150
     assert summary["totals"] == {
         "promptTokens": 250,
         "completionTokens": 50,

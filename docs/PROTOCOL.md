@@ -373,6 +373,17 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
         "cachedTokens": 8192,
         "reasoningTokens": 512
       },
+      "latestMeasured": {
+        "recordedAt": "2026-08-27T08:04:00.000000Z",
+        "turnId": "turn_1",
+        "step": 2,
+        "available": true,
+        "promptTokens": 42800,
+        "completionTokens": 923,
+        "totalTokens": 43723,
+        "cachedTokens": 8192,
+        "reasoningTokens": 512
+      },
       "totals": {
         "promptTokens": 70120,
         "completionTokens": 1540,
