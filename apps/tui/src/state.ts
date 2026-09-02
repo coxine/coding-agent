@@ -94,6 +94,7 @@ export type AppState = {
 	status: string;
 	step: number;
 	activeTurnId?: string;
+	paused: boolean;
 	items: TranscriptItem[];
 	tools: Record<string, ToolView>;
 	pendingApproval?: Approval;
@@ -119,6 +120,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 		sessions: [],
 		sessionPickerOpen: false,
 		step: 0,
+		paused: false,
 		items: [],
 		tools: {},
 	};
@@ -140,6 +142,7 @@ export function reducer(state: AppState, action: Action): AppState {
 		return {
 			...state,
 			activeTurnId: action.turnId,
+			paused: false,
 			status: 'Submitting task',
 			items: [...state.items, {kind: 'user', id: action.turnId, text: action.text}],
 		};
@@ -178,6 +181,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				items: transcriptItems(payload.transcript),
 				tools: {},
 				step: 0,
+				paused: false,
 				status: 'Ready',
 				sessionPickerOpen: false,
 				statusReport: undefined,
@@ -190,6 +194,10 @@ export function reducer(state: AppState, action: Action): AppState {
 			};
 		case 'agent_status':
 			return {...state, status: prettyStatus(String(payload.status ?? 'running')), step: Number(payload.step ?? state.step)};
+		case 'turn_paused':
+			return {...state, paused: true, status: 'Paused'};
+		case 'turn_resumed':
+			return {...state, paused: false, status: 'Resuming'};
 		case 'assistant_message_started': {
 			const id = String(payload.assistantMessageId);
 			return {...state, items: [...state.items, {kind: 'assistant', id, text: '', finished: false}]};
@@ -282,11 +290,12 @@ export function reducer(state: AppState, action: Action): AppState {
 		case 'context_updated':
 			return {...state, items: [...state.items, {kind: 'notice', id: event.messageId, text: String(payload.summary ?? ''), level: 'info'}]};
 		case 'turn_finished':
-			return {...state, activeTurnId: undefined, status: 'Ready', step: 0, pendingApproval: undefined, pendingQuestion: undefined};
+			return {...state, activeTurnId: undefined, paused: false, status: 'Ready', step: 0, pendingApproval: undefined, pendingQuestion: undefined};
 		case 'turn_failed':
 			return {
 				...state,
 				activeTurnId: undefined,
+				paused: false,
 				status: 'Failed',
 				pendingApproval: undefined,
 				pendingQuestion: undefined,
@@ -296,6 +305,7 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				activeTurnId: undefined,
+				paused: false,
 				status: 'Cancelled',
 				tools: cancelActiveTools(state.tools),
 				pendingApproval: undefined,

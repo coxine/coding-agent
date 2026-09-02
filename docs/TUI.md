@@ -65,7 +65,7 @@ Ink 是普通 TUI 渲染库，不是 Agent 框架；Agent 的重要逻辑仍全�
 ├──────────────────────────────────────────────────────────────┤
 │ > 输入任务，Enter 发送，Ctrl+Enter 换行                       │
 ├──────────────────────────────────────────────────────────────┤
-│ esc cancel  •  ctrl+c exit  •  ctrl+o details                │
+│ esc pause  •  ctrl+c cancel task  •  ctrl+o details          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -99,7 +99,11 @@ TUI 必须适配终端大小变化：
 
 ### 5.2 `running`
 
-Agent 正在请求模型、输出文本或执行普通工具。输入框保留但禁止提交第二个任务；界面提示可按 Esc 取消。
+Agent 正在请求模型、输出文本或执行普通工具。输入框保留但禁止提交第二个任务；界面提示可按 Esc 暂停。
+
+### 5.2.1 `paused`
+
+用户按 Esc 后暂停当前 turn，保留上下文、step 和工具状态；再次按 Esc 继续。模型流式输出在增量边界暂停，本地命令在当前调用安全结束后停在下一检查点。暂停状态下 Ctrl+C 仍可取消任务。
 
 ### 5.3 `approval`
 
@@ -316,7 +320,7 @@ App
 | `N` | 新建并切换到空白对话 | `session_picker` |
 | `Esc` | 关闭面板 | `session_picker` |
 | `Ctrl+Enter` | 插入换行 | `composing` |
-| `Esc` | 取消当前 turn；关闭详情 | `running` / `details` |
+| `Esc` | 暂停当前 turn；暂停后再次按下继续；关闭详情 | `running` / `paused` / `details` |
 | `Ctrl+C` | 第一次取消活动 turn，空闲时退出 | 全局 |
 | `Ctrl+O` | 打开或关闭选中工具详情 | 非 `approval` |
 | `↑` / `↓` | 移动选择或滚动 | `approval` / `details` |
@@ -379,6 +383,8 @@ Reducer 输入只允许：
 | `status_report` | 显示只读状态面板和上下文占用 |
 | `turn_started` | 创建 turn 记录，禁用任务提交 |
 | `agent_status` | 更新 Context Bar 状态和 step |
+| `turn_paused` | 保留活动 turn，状态切换为 paused |
+| `turn_resumed` | 保留活动 turn，恢复运行状态 |
 | `assistant_message_started` | 创建空 Agent 消息块 |
 | `assistant_delta` | 追加文本并刷新显示 |
 | `assistant_message_finished` | 固化消息内容 |
@@ -476,6 +482,10 @@ TUI 使用 npm 脚本确定项目内 Python Core 入口，并通过 `uv run` 启
 ### 用户取消
 
 发送取消后状态显示 `Cancelling…`，收到 `turn_cancelled` 前不允许提交新任务。
+
+### 用户暂停
+
+Esc 发送暂停请求，收到 `turn_paused` 后显示 `Paused`；再次按 Esc 发送继续请求。暂停不会生成终止事件，也不会清除当前 turn。
 
 ## 18. 颜色与可访问性
 

@@ -58,7 +58,7 @@ TUI 只负责交互和展示，不包含 Agent 决策逻辑。主要职责：
 - 展示工具名称、参数、运行状态和结果摘要。
 - 展示文件修改 diff。
 - 在高风险操作前请求用户确认。
-- 支持取消当前任务和退出程序。
+- 支持暂停、继续、取消当前任务和退出程序。
 - 展示模型、工作目录、当前轮数和运行状态。
 
 ### 4.2 Python Agent Core
@@ -276,7 +276,7 @@ idle
         └─> cancelled
 ```
 
-同一时刻只运行一个用户任务。任务执行期间可以取消，但不能并行提交第二个任务。
+同一时刻只运行一个用户任务。任务执行期间可以暂停、继续或取消，但不能并行提交第二个任务。
 
 ## 7. TUI 与 Core 的基础事件
 
@@ -285,6 +285,7 @@ idle
 - `initialize`：初始化工作区和模型配置。
 - `submit_task`：提交用户任务。
 - `approval_response`：允许或拒绝待确认操作。
+- `pause_turn` / `resume_turn`：暂停或继续当前任务，不结束 turn。
 - `cancel_turn`：取消当前任务。
 - `shutdown`：正常退出。
 
@@ -305,6 +306,7 @@ idle
 - `context_updated`：上下文或输出被截断、压缩。
 - `turn_finished`：任务正常结束。
 - `turn_failed`：任务执行失败。
+- `turn_paused` / `turn_resumed`：任务暂停或继续，仍使用原 turn。
 - `turn_cancelled`：任务已取消。
 - `error`：发生错误。
 - `shutdown_complete`：Core 已完成清理并可退出。

@@ -214,7 +214,11 @@ TUI                           Core
 
 Core 收到后应中断模型请求、正在等待的批准或本地子进程，并最终发送 `turn_cancelled`。取消是异步请求，TUI 不能在发出后立即假设任务已经结束。
 
-### 6.4.1 `user_input_response`
+### 6.4.1 `pause_turn` / `resume_turn`
+
+暂停和继续当前任务。两种消息均携带当前 `sessionId` 与 `turnId`，payload 为空。Core 收到 `pause_turn` 后发送 `turn_paused`；模型流式输出在增量边界停止，本地工具在当前调用完成后停在下一检查点。`resume_turn` 解除检查点并发送 `turn_resumed`。暂停不属于终止状态，不修改已持久化的对话上下文。
+
+### 6.4.2 `user_input_response`
 
 回答或取消 Agent 的提问。消息必须携带当前 `sessionId`、`turnId` 和对应 `toolCallId`。回答使用 `{"answer":"..."}`；取消问题使用 `{"cancelled":true}`。回答去除首尾空白后不能为空，最长 10,000 字符。
 
@@ -759,6 +763,10 @@ TUI 显示问题输入面板，并以 `user_input_response` 回答。等待期�
   }
 }
 ```
+
+### 7.16.1 `turn_paused` / `turn_resumed`
+
+分别确认当前 turn 已进入暂停状态或已经继续。两种事件都携带活动的 `sessionId`、`turnId` 和空 payload，不属于 turn 终止事件。
 
 ### 7.17 `error`
 

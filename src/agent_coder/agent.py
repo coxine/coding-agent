@@ -18,6 +18,7 @@ ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
 UserInputCallback = Callable[[str, str], Awaitable[str | None]]
 PersistCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
 UsageCallback = Callable[[str, int, TokenUsage | None], Awaitable[None]]
+PauseCallback = Callable[[], Awaitable[None]]
 
 
 SYSTEM_PROMPT = """You are a local coding agent operating inside one workspace.
@@ -64,6 +65,7 @@ class Agent:
         history_messages: list[dict[str, Any]] | None = None,
         persist_messages: PersistCallback | None = None,
         persist_usage: UsageCallback | None = None,
+        wait_until_resumed: PauseCallback | None = None,
     ) -> None:
         self.config = config
         self.session_id = session_id
@@ -74,6 +76,7 @@ class Agent:
         self.request_user_input = request_user_input
         self.persist_messages = persist_messages
         self.persist_usage = persist_usage
+        self.wait_until_resumed = wait_until_resumed
         self.context = ContextManager(config.max_context_chars)
         self.messages: list[dict[str, Any]] = [
             {
@@ -116,6 +119,7 @@ class Agent:
     async def _run_loop(self, turn: TurnState) -> None:
         empty_responses = 0
         while True:
+            await self._pause_checkpoint()
             if turn.step >= self.config.max_steps:
                 await self._fail(turn, "max_steps_exceeded", "Agent reached the maximum step count")
                 return
@@ -132,6 +136,7 @@ class Agent:
             )
 
             async def on_delta(text: str) -> None:
+                await self._pause_checkpoint()
                 await self._emit(
                     "assistant_delta",
                     {"assistantMessageId": assistant_message_id, "text": text},
@@ -141,6 +146,7 @@ class Agent:
             reply = await self.model.complete(
                 self.context.build_request(self.messages), self.tools.schemas, on_delta
             )
+            await self._pause_checkpoint()
             if self.persist_usage is not None:
                 await self.persist_usage(turn.turn_id, turn.step, reply.usage)
             await self._emit(
@@ -154,7 +160,9 @@ class Agent:
                 empty_responses = 0
                 for call_index, call in enumerate(reply.tool_calls):
                     try:
+                        await self._pause_checkpoint()
                         result = await self._execute_call(turn, call)
+                        await self._pause_checkpoint()
                     except asyncio.CancelledError:
                         cancelled_result = ToolResult(
                             ok=False,
@@ -213,6 +221,10 @@ class Agent:
     async def _persist(self) -> None:
         if self.persist_messages is not None:
             await self.persist_messages(self.messages[1:])
+
+    async def _pause_checkpoint(self) -> None:
+        if self.wait_until_resumed is not None:
+            await self.wait_until_resumed()
 
     def context_stats(self) -> dict[str, int | bool]:
         return self.context.stats(self.messages)

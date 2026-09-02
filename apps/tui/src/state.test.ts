@@ -113,3 +113,21 @@ test('cancelling a turn closes active tool cards', () => {
 	assert.equal(state.pendingQuestion, undefined);
 	assert.equal(state.tools.call_1?.status, 'cancelled');
 });
+
+test('pause and resume events keep the active turn', () => {
+	let state = reducer(initialState('/tmp/project', 'model'), {
+		type: 'submitted',
+		turnId: 'turn_1',
+		text: 'Inspect the project',
+	});
+	state = reducer(state, {type: 'core_event', event: message('turn_paused', {}, {turnId: 'turn_1'})});
+
+	assert.equal(state.paused, true);
+	assert.equal(state.status, 'Paused');
+	assert.equal(state.activeTurnId, 'turn_1');
+
+	state = reducer(state, {type: 'core_event', event: message('turn_resumed', {}, {turnId: 'turn_1'})});
+	assert.equal(state.paused, false);
+	assert.equal(state.status, 'Resuming');
+	assert.equal(state.activeTurnId, 'turn_1');
+});

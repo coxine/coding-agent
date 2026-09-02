@@ -31,6 +31,8 @@ class CoreServer:
         self.active_task: asyncio.Task[None] | None = None
         self.approvals: dict[str, asyncio.Future[bool]] = {}
         self.questions: dict[str, asyncio.Future[str | None]] = {}
+        self.turn_resume_event = asyncio.Event()
+        self.turn_resume_event.set()
         self.shutting_down = False
 
     async def run(self) -> int:
@@ -75,6 +77,10 @@ class CoreServer:
             await self._user_input_response(message)
         elif message_type == "cancel_turn":
             await self._cancel_turn(message)
+        elif message_type == "pause_turn":
+            await self._pause_turn(message)
+        elif message_type == "resume_turn":
+            await self._resume_turn(message)
         elif message_type == "list_sessions":
             await self._list_sessions(message)
         elif message_type == "get_status":
@@ -124,6 +130,7 @@ class CoreServer:
                     "approvals": True,
                     "sessions": True,
                     "userInput": True,
+                    "pauseResume": True,
                 },
             },
             session_id=self.session_id,
@@ -176,6 +183,7 @@ class CoreServer:
             history_messages=conversation.messages,
             persist_messages=persist,
             persist_usage=persist_usage,
+            wait_until_resumed=self._wait_until_resumed,
         )
 
     async def _list_sessions(self, message: dict[str, Any]) -> None:
@@ -312,6 +320,7 @@ class CoreServer:
             return
 
         self.active_turn_id = turn_id
+        self.turn_resume_event.set()
         self.active_task = asyncio.create_task(self.agent.run_turn(turn_id, text.strip()))
         self.active_task.add_done_callback(self._turn_done)
 
@@ -400,11 +409,48 @@ class CoreServer:
         if message.get("turnId") != self.active_turn_id or self.active_task is None:
             await self._error("unknown_turn", "turnId is not active")
             return
+        self.turn_resume_event.set()
         if not self.active_task.done():
             self.active_task.cancel()
 
+    async def _pause_turn(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if message.get("turnId") != self.active_turn_id or self.active_task is None:
+            await self._error("unknown_turn", "turnId is not active")
+            return
+        if self.active_task.done() or not self.turn_resume_event.is_set():
+            return
+        self.turn_resume_event.clear()
+        await self.emitter.emit(
+            "turn_paused",
+            {},
+            session_id=self.session_id,
+            turn_id=self.active_turn_id,
+        )
+
+    async def _resume_turn(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if message.get("turnId") != self.active_turn_id or self.active_task is None:
+            await self._error("unknown_turn", "turnId is not active")
+            return
+        if self.active_task.done() or self.turn_resume_event.is_set():
+            return
+        self.turn_resume_event.set()
+        await self.emitter.emit(
+            "turn_resumed",
+            {},
+            session_id=self.session_id,
+            turn_id=self.active_turn_id,
+        )
+
+    async def _wait_until_resumed(self) -> None:
+        await self.turn_resume_event.wait()
+
     async def _shutdown(self, *, emit_complete: bool) -> None:
         self.shutting_down = True
+        self.turn_resume_event.set()
         if self.active_task and not self.active_task.done():
             self.active_task.cancel()
             await asyncio.gather(self.active_task, return_exceptions=True)
@@ -428,6 +474,7 @@ class CoreServer:
             pass
         self.active_turn_id = None
         self.active_task = None
+        self.turn_resume_event.set()
 
     async def _check_session(self, message: dict[str, Any]) -> bool:
         if self.session_id is None:

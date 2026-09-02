@@ -83,6 +83,16 @@ export class CoreClient extends EventEmitter {
 		);
 	}
 
+	pause(): void {
+		if (!this.sessionId || !this.activeTurnId) return;
+		this.send(message('pause_turn', {}, {sessionId: this.sessionId, turnId: this.activeTurnId}));
+	}
+
+	resume(): void {
+		if (!this.sessionId || !this.activeTurnId) return;
+		this.send(message('resume_turn', {}, {sessionId: this.sessionId, turnId: this.activeTurnId}));
+	}
+
 	listSessions(): void {
 		if (!this.sessionId) throw new Error('Agent Core is not initialized');
 		this.send(message('list_sessions', {}, {sessionId: this.sessionId}));

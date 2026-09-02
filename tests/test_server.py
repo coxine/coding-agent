@@ -57,6 +57,34 @@ async def test_core_user_can_cancel_question() -> None:
 
 
 @pytest.mark.asyncio
+async def test_core_can_pause_and_resume_active_turn() -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+    server.active_turn_id = "turn_test"
+    server.active_task = asyncio.create_task(asyncio.Event().wait())
+    message = {"sessionId": "sess_test", "turnId": "turn_test", "payload": {}}
+
+    try:
+        await server._pause_turn(message)
+        waiter = asyncio.create_task(server._wait_until_resumed())
+        await asyncio.sleep(0)
+        assert not server.turn_resume_event.is_set()
+        assert not waiter.done()
+
+        await server._resume_turn(message)
+        await waiter
+        assert server.turn_resume_event.is_set()
+        assert [event["type"] for event in map(json.loads, output.getvalue().splitlines())] == [
+            "turn_paused",
+            "turn_resumed",
+        ]
+    finally:
+        server.active_task.cancel()
+        await asyncio.gather(server.active_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_core_status_report_contains_context_and_metadata(tmp_path) -> None:
     output = io.StringIO()
     server = CoreServer(emitter=ProtocolEmitter(output))

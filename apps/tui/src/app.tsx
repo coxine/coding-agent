@@ -143,8 +143,8 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			return;
 		}
 		if (key.escape && state.activeTurnId) {
-			client.cancel();
-			setCancelling(true);
+			if (state.paused) client.resume();
+			else client.pause();
 			return;
 		}
 		if (!canSubmit) return;
@@ -236,7 +236,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 					<Composer value={input} enabled={canSubmit} />
 				</Box>
 			)}
-			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} />
+			<Footer active={Boolean(state.activeTurnId)} paused={state.paused} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} />
 		</Box>
 	);
 }
@@ -478,7 +478,7 @@ export function Composer({ value, enabled }: { value: string; enabled: boolean }
 	);
 }
 
-function Footer({ active, approval, question, sessions, status }: { active: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean }): React.ReactNode {
+function Footer({ active, paused, approval, question, sessions, status }: { active: boolean; paused: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean }): React.ReactNode {
 	const hints: Hint[] = approval
 		? [
 			{ key: 'y', label: 'allow' },
@@ -504,8 +504,8 @@ function Footer({ active, approval, question, sessions, status }: { active: bool
 					]
 					: active
 						? [
-							{ key: 'esc', label: 'cancel' },
-							{ key: 'ctrl+c', label: 'cancel' },
+							{ key: 'esc', label: paused ? 'resume' : 'pause' },
+							{ key: 'ctrl+c', label: 'cancel task' },
 						]
 						: [
 							{ key: 'enter', label: 'send' },
