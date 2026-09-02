@@ -141,7 +141,8 @@ TUI                           Core
 
 - `workspaceRoot` 必须是绝对路径。
 - API Key 不通过协议发送，Core 自己从环境变量读取。
-- `contextWindowTokens` 可选，优先于 `AGENT_CONTEXT_WINDOW`，两者都未配置时默认 `128000`；它只提供模型容量 metadata，不触发本地 token 估算。
+- `contextWindowTokens` 可选，优先于 `AGENT_CONTEXT_WINDOW`，两者都未配置时默认 `128000`。它提供模型容量 metadata，也是请求裁剪预算（`maxChars`）的默认来源：默认按每 token 约 4 字符推导（`contextWindowTokens × 4`，夹在 20,000–2,000,000 字符之间）。不进行本地 token 估算。
+- `maxContextChars` 可选，显式覆盖由 `contextWindowTokens` 推导出的字符裁剪上限。
 - TUI 可以传递非敏感选项；Core 负责最终校验和应用默认值。
 
 ### 6.2 `submit_task`
@@ -356,7 +357,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
     "context": {
       "totalChars": 42800,
       "requestChars": 42800,
-      "maxChars": 200000,
+      "maxChars": 512000,
       "messageCount": 37,
       "requestMessageCount": 37,
       "truncated": false

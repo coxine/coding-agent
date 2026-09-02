@@ -15,6 +15,12 @@ _MODEL_CONFIG_KEYS = {
     "AGENT_CONTEXT_WINDOW",
 }
 
+# Heuristic characters-per-token used to derive the request truncation budget
+# from the model's token window without a local tokenizer.
+_CHARS_PER_TOKEN = 4
+_MIN_CONTEXT_CHARS = 20_000
+_MAX_CONTEXT_CHARS = 2_000_000
+
 
 class ConfigurationError(ValueError):
     """Raised when the core cannot start with the supplied configuration."""
@@ -28,8 +34,10 @@ class AgentConfig:
     model: str
     max_steps: int = 1000
     command_timeout_ms: int = 30_000
-    max_context_chars: int = 200_000
     context_window_tokens: int = 128_000
+    # Derived from context_window_tokens via _CHARS_PER_TOKEN when not explicitly
+    # overridden by options.maxContextChars; kept as a field for direct construction.
+    max_context_chars: int = 200_000
 
     @classmethod
     def from_initialize(cls, payload: dict[str, Any]) -> "AgentConfig":
@@ -73,9 +81,6 @@ class AgentConfig:
 
         max_steps = cls._bounded_int(options, "maxSteps", 1000, 1, 1000)
         timeout = cls._bounded_int(options, "commandTimeoutMs", 30_000, 1_000, 120_000)
-        context_chars = cls._bounded_int(
-            options, "maxContextChars", 200_000, 20_000, 2_000_000
-        )
         context_window_tokens = cls._optional_bounded_int(
             options.get("contextWindowTokens"),
             os.environ.get("AGENT_CONTEXT_WINDOW"),
@@ -84,6 +89,7 @@ class AgentConfig:
             minimum=1_024,
             maximum=10_000_000,
         ) or 128_000
+        context_chars = cls._resolve_context_chars(options, context_window_tokens)
 
         return cls(
             workspace_root=workspace,
@@ -135,6 +141,16 @@ class AgentConfig:
         if not minimum <= value <= maximum:
             raise ConfigurationError(f"{key} must be between {minimum} and {maximum}")
         return value
+
+    @staticmethod
+    def _resolve_context_chars(options: dict[str, Any], context_window_tokens: int) -> int:
+        if "maxContextChars" in options:
+            return AgentConfig._bounded_int(
+                options, "maxContextChars", 200_000, _MIN_CONTEXT_CHARS, _MAX_CONTEXT_CHARS
+            )
+        return max(
+            _MIN_CONTEXT_CHARS, min(_MAX_CONTEXT_CHARS, context_window_tokens * _CHARS_PER_TOKEN)
+        )
 
     @staticmethod
     def _optional_bounded_int(

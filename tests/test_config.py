@@ -121,3 +121,68 @@ def test_initialize_context_window_overrides_environment(
     )
 
     assert config.context_window_tokens == 200000
+
+
+def test_context_chars_derived_from_token_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    config = AgentConfig.from_initialize(
+        {"workspaceRoot": str(tmp_path), "model": "test"}
+    )
+
+    assert config.context_window_tokens == 128000
+    assert config.max_context_chars == 128000 * 4
+
+
+def test_context_chars_follows_context_window_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    config = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "test",
+            "options": {"contextWindowTokens": 32000},
+        }
+    )
+
+    assert config.max_context_chars == 32000 * 4
+
+
+def test_explicit_max_context_chars_overrides_derivation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    config = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "test",
+            "options": {"maxContextChars": 100_000},
+        }
+    )
+
+    assert config.max_context_chars == 100_000
+
+
+def test_context_chars_derivation_clamped_to_bounds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    large = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "test",
+            "options": {"contextWindowTokens": 10_000_000},
+        }
+    )
+    assert large.max_context_chars == 2_000_000
+
+    small = AgentConfig.from_initialize(
+        {
+            "workspaceRoot": str(tmp_path),
+            "model": "test",
+            "options": {"contextWindowTokens": 1_024},
+        }
+    )
+    assert small.max_context_chars == 20_000
