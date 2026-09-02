@@ -250,14 +250,18 @@ function Header({ model, workspace, conversation, status, step }: { model: strin
 	);
 }
 
-function Transcript({ item, tool }: { item: TranscriptItem; tool?: ToolView }): React.ReactNode {
+export function Transcript({ item, tool }: { item: TranscriptItem; tool?: ToolView }): React.ReactNode {
 	if (item.kind === 'user') {
-		return <Box flexDirection="column" marginBottom={1}><Text bold color="green">You</Text><Text>{item.text}</Text></Box>;
+		return (
+			<Box width="100%" backgroundColor="#eeeeee" paddingX={1} marginBottom={1}>
+				<Text color="#303030"><Text color="#888888">› </Text>{item.text}</Text>
+			</Box>
+		);
 	}
 	if (item.kind === 'assistant') {
-		if (!item.text && !item.finished) return <Box marginBottom={1}><Text color="cyan">Agent </Text><Spinner /></Box>;
+		if (!item.text && !item.finished) return <Box marginBottom={1}><Spinner /></Box>;
 		if (!item.text) return null;
-		return <Box flexDirection="column" marginBottom={1}><Text bold color="cyan">Agent</Text><MarkdownText>{item.text}</MarkdownText></Box>;
+		return <Box flexDirection="column" marginBottom={1}><MarkdownText>{item.text}</MarkdownText></Box>;
 	}
 	if (item.kind === 'notice') {
 		return <Box marginBottom={1}><Text color={item.level === 'error' ? 'red' : 'yellow'}>{item.level === 'error' ? 'Error' : 'Info'}: {item.text}</Text></Box>;
