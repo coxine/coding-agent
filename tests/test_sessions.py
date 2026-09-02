@@ -148,3 +148,15 @@ def test_compact_state_round_trips_and_defaults(tmp_path) -> None:
 
     legacy = store.create()
     assert legacy.compact_state == {}
+
+
+def test_delete_removes_conversation_and_rejects_invalid(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+
+    store.delete(conversation.id)
+    assert store.list() == []
+    with pytest.raises(ValueError, match="conversation does not exist"):
+        store.load(conversation.id)
+    with pytest.raises(ValueError, match="invalid conversation id"):
+        store.delete("../../secret")

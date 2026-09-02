@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink';
 import { randomUUID } from 'node:crypto';
 import { CoreClient } from './core-client.js';
 import { matchingCommands, parseSlashCommand, SlashCommand } from './commands.js';
+import { pushHistory, stepHistory } from './history.js';
 import { MarkdownText } from './markdown.js';
 import { CoreEvent } from './protocol.js';
 import { Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem } from './state.js';
@@ -24,7 +25,11 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 	const [sessionChoice, setSessionChoice] = useState(0);
 	const [commandChoice, setCommandChoice] = useState(0);
 	const [questionAnswer, setQuestionAnswer] = useState('');
+	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 	const clientRef = useRef<CoreClient | null>(null);
+	const historyRef = useRef<string[]>([]);
+	const historyIndexRef = useRef(-1);
+	const draftRef = useRef('');
 
 	useEffect(() => {
 		const client = new CoreClient({ repositoryRoot, workspaceRoot, model, baseUrl });
@@ -64,6 +69,10 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 		setSessionChoice(activeIndex < 0 ? 0 : activeIndex);
 	}, [state.conversationId, state.sessionPickerOpen, state.sessions]);
 
+	useEffect(() => {
+		if (!state.sessionPickerOpen) setConfirmingDelete(null);
+	}, [state.sessionPickerOpen]);
+
 	const canSubmit = state.connection === 'ready' && !state.activeTurnId;
 	const commands = useMemo(() => matchingCommands(input), [input]);
 	const commandPaletteOpen = canSubmit && commands.length > 0;
@@ -95,7 +104,25 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				client.answerQuestion(state.pendingQuestion.toolCallId);
 				return;
 			}
-			if (key.return) {
+		if (key.upArrow) {
+			const history = historyRef.current;
+			if (history.length === 0) return;
+			const next = stepHistory(history, historyIndexRef.current, draftRef.current, input, 'up');
+			historyIndexRef.current = next.index;
+			draftRef.current = next.draft;
+			setInput(next.input);
+			return;
+		}
+		if (key.downArrow) {
+			if (historyIndexRef.current === -1) return;
+			const next = stepHistory(historyRef.current, historyIndexRef.current, draftRef.current, input, 'down');
+			historyIndexRef.current = next.index;
+			draftRef.current = next.draft;
+			setInput(next.input);
+			return;
+		}
+
+		if (key.return) {
 				if (key.meta || key.ctrl) {
 					setQuestionAnswer(value => `${value}\n`);
 					return;
@@ -120,10 +147,23 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 		}
 
 		if (state.sessionPickerOpen) {
+			if (confirmingDelete) {
+				if (character.toLowerCase() === 'y') {
+					client.deleteSession(confirmingDelete);
+					setConfirmingDelete(null);
+				} else if (character.toLowerCase() === 'n' || key.escape) {
+					setConfirmingDelete(null);
+				}
+				return;
+			}
 			if (key.escape) dispatch({ type: 'close_session_picker' });
 			if (key.upArrow) setSessionChoice(value => Math.max(0, value - 1));
 			if (key.downArrow) setSessionChoice(value => Math.min(state.sessions.length - 1, value + 1));
 			if (character.toLowerCase() === 'n') client.createSession();
+			if (character.toLowerCase() === 'd' && state.sessions[sessionChoice]) {
+				setConfirmingDelete(state.sessions[sessionChoice].id);
+				return;
+			}
 			if (key.return && state.sessions[sessionChoice]) client.switchSession(state.sessions[sessionChoice].id);
 			return;
 		}
@@ -200,6 +240,9 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			try {
 				client.submit(text, turnId);
 				dispatch({ type: 'submitted', turnId, text });
+				historyRef.current = pushHistory(historyRef.current, text);
+				historyIndexRef.current = -1;
+				draftRef.current = '';
 				setInput('');
 			} catch (error) {
 				dispatch({ type: 'notice', message: String(error), level: 'error' });
@@ -230,7 +273,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			) : state.statusReport ? (
 				<StatusPanel report={state.statusReport} />
 			) : state.sessionPickerOpen ? (
-				<SessionPicker sessions={state.sessions} activeId={state.conversationId} choice={sessionChoice} />
+				<SessionPicker sessions={state.sessions} activeId={state.conversationId} choice={sessionChoice} confirmingDelete={confirmingDelete} />
 			) : state.connection === 'fatal' ? (
 				<Box borderStyle="round" borderColor="red" paddingX={1} flexDirection="column">
 					<Text bold color="red">Agent Core failed</Text>
@@ -334,7 +377,8 @@ function QuestionDialog({ question, answer }: { question: Question; answer: stri
 	);
 }
 
-function SessionPicker({ sessions, activeId, choice }: { sessions: SessionSummary[]; activeId?: string; choice: number }): React.ReactNode {
+function SessionPicker({ sessions, activeId, choice, confirmingDelete }: { sessions: SessionSummary[]; activeId?: string; choice: number; confirmingDelete: string | null }): React.ReactNode {
+	const selected = sessions[choice];
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="magenta" paddingX={1}>
 			<Text bold color="magenta">Sessions</Text>
@@ -343,12 +387,17 @@ function SessionPicker({ sessions, activeId, choice }: { sessions: SessionSummar
 					{index === choice ? '› ' : '  '}{session.id === activeId ? '● ' : '  '}{session.title} <Text dimColor>({session.messageCount} turns • {formatDate(session.updatedAt)})</Text>
 				</Text>
 			))}
-			<HintLine hints={[
-				{ key: '↑/↓', label: 'select' },
-				{ key: 'enter', label: 'switch' },
-				{ key: 'n', label: 'new' },
-				{ key: 'esc', label: 'close' },
-			]} />
+			{confirmingDelete && selected ? (
+				<Text color="red">Delete "{selected.title}"? <Text bold>y</Text> to confirm, <Text bold>n</Text> to cancel.</Text>
+			) : (
+				<HintLine hints={[
+					{ key: '↑/↓', label: 'select' },
+					{ key: 'enter', label: 'switch' },
+					{ key: 'n', label: 'new' },
+					{ key: 'd', label: 'delete' },
+					{ key: 'esc', label: 'close' },
+				]} />
+			)}
 		</Box>
 	);
 }
@@ -547,6 +596,7 @@ function Footer({ active, paused, approval, question, sessions, status, reasonin
 						]
 						: [
 							{ key: 'enter', label: 'send' },
+							{ key: '↑/↓', label: 'history' },
 							{ key: '/session', label: 'history' },
 							{ key: '/status', label: 'info' },
 							{ key: 'ctrl+enter', label: 'newline' },

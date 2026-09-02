@@ -196,6 +196,25 @@ export function reducer(state: AppState, action: Action): AppState {
 				conversationId: String(payload.conversationId ?? state.conversationId ?? ''),
 				conversationTitle: String(payload.conversationTitle ?? state.conversationTitle),
 			};
+		case 'conversation_deleted': {
+			const activeChanged = Boolean(payload.activeChanged);
+			const next: AppState = {
+				...state,
+				conversationId: String(payload.activeConversationId ?? state.conversationId ?? ''),
+				conversationTitle: String(payload.conversationTitle ?? state.conversationTitle),
+				sessions: sessionSummaries(payload.sessions),
+			};
+			if (!activeChanged) return next;
+			return {
+				...next,
+				items: transcriptItems(payload.transcript),
+				tools: {},
+				step: 0,
+				paused: false,
+				status: 'Ready',
+				statusReport: undefined,
+			};
+		}
 		case 'agent_status':
 			return {...state, status: prettyStatus(String(payload.status ?? 'running')), step: Number(payload.step ?? state.step)};
 		case 'turn_paused':

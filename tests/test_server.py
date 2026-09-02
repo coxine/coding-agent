@@ -154,3 +154,54 @@ async def test_core_can_rename_current_session(tmp_path) -> None:
     assert event["payload"]["conversationTitle"] == "Parser cleanup"
     assert event["payload"]["titleSource"] == "custom"
     assert server.session_store.load(server.conversation.id).title == "Parser cleanup"
+
+
+@pytest.mark.asyncio
+async def test_core_can_delete_non_active_session(tmp_path) -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+    server.session_store = SessionStore(tmp_path)
+    server.conversation = server.session_store.create()
+    other = server.session_store.create()
+
+    await server._delete_session(
+        {"sessionId": "sess_test", "payload": {"conversationId": other.id}}
+    )
+
+    event = json.loads(output.getvalue().splitlines()[0])
+    assert event["type"] == "conversation_deleted"
+    assert event["payload"]["deletedConversationId"] == other.id
+    assert event["payload"]["activeChanged"] is False
+    assert event["payload"]["activeConversationId"] == server.conversation.id
+    assert [session["id"] for session in event["payload"]["sessions"]] == [
+        server.conversation.id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_deleting_active_session_switches_to_latest(tmp_path) -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+    server.config = AgentConfig(
+        workspace_root=tmp_path,
+        api_key="unused",
+        base_url="https://example.invalid/v1",
+        model="test-model",
+    )
+    server.session_store = SessionStore(tmp_path)
+    server.conversation = server.session_store.create()
+    other = server.session_store.create()
+    server.session_store.update_messages(other, [{"role": "user", "content": "keep me"}])
+
+    await server._delete_session(
+        {"sessionId": "sess_test", "payload": {"conversationId": server.conversation.id}}
+    )
+
+    event = json.loads(output.getvalue().splitlines()[0])
+    assert event["type"] == "conversation_deleted"
+    assert event["payload"]["activeChanged"] is True
+    assert event["payload"]["activeConversationId"] == other.id
+    assert server.conversation.id == other.id
+    assert event["payload"]["transcript"][0]["content"] == "keep me"

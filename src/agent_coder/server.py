@@ -91,6 +91,8 @@ class CoreServer:
             await self._create_session(message)
         elif message_type == "rename_session":
             await self._rename_session(message)
+        elif message_type == "delete_session":
+            await self._delete_session(message)
         elif message_type == "shutdown":
             await self._shutdown(emit_complete=True)
         else:
@@ -284,6 +286,41 @@ class CoreServer:
                 "conversationId": self.conversation.id,
                 "conversationTitle": self.conversation.title,
                 "titleSource": self.conversation.title_source,
+            },
+            session_id=self.session_id,
+        )
+
+    async def _delete_session(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message) or not await self._can_change_conversation():
+            return
+        conversation_id = message["payload"].get("conversationId")
+        if not isinstance(conversation_id, str) or not conversation_id:
+            await self._error("invalid_message", "payload.conversationId must be a string")
+            return
+        assert self.session_store is not None and self.conversation is not None
+        try:
+            await asyncio.to_thread(self.session_store.delete, conversation_id)
+        except ValueError as exc:
+            await self._error("unknown_conversation", str(exc))
+            return
+
+        active_changed = self.conversation.id == conversation_id
+        if active_changed:
+            self.conversation = await asyncio.to_thread(self.session_store.latest_or_create)
+            self.agent = self._build_agent(self.conversation)
+        sessions = await asyncio.to_thread(self.session_store.list)
+        await self.emitter.emit(
+            "conversation_deleted",
+            {
+                "deletedConversationId": conversation_id,
+                "activeConversationId": self.conversation.id,
+                "conversationTitle": self.conversation.title,
+                "titleSource": self.conversation.title_source,
+                "transcript": self.session_store.transcript(self.conversation.messages)
+                if active_changed
+                else None,
+                "activeChanged": active_changed,
+                "sessions": sessions,
             },
             session_id=self.session_id,
         )

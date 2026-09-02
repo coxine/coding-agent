@@ -45,6 +45,52 @@ test('session events open picker and switching replaces transcript', () => {
 	assert.equal(switched.items.length, 1);
 });
 
+test('conversation_deleted removes the session and keeps the picker open', () => {
+	const initial = initialState('/tmp/project', 'model');
+	const listed = reducer(initial, {
+		type: 'core_event',
+		event: message('sessions_listed', {
+			activeConversationId: 'conv_1',
+			sessions: [
+				{id: 'conv_1', title: 'One', createdAt: 'now', updatedAt: 'now', messageCount: 1},
+				{id: 'conv_2', title: 'Two', createdAt: 'now', updatedAt: 'now', messageCount: 1},
+			],
+		}),
+	});
+	const deleted = reducer(listed, {
+		type: 'core_event',
+		event: message('conversation_deleted', {
+			deletedConversationId: 'conv_2',
+			activeConversationId: 'conv_1',
+			conversationTitle: 'One',
+			activeChanged: false,
+			sessions: [{id: 'conv_1', title: 'One', createdAt: 'now', updatedAt: 'now', messageCount: 1}],
+		}),
+	});
+	assert.equal(deleted.sessions.length, 1);
+	assert.equal(deleted.conversationId, 'conv_1');
+	assert.equal(deleted.sessionPickerOpen, true);
+});
+
+test('conversation_deleted with activeChanged rebuilds the transcript', () => {
+	const initial = initialState('/tmp/project', 'model');
+	const deleted = reducer(initial, {
+		type: 'core_event',
+		event: message('conversation_deleted', {
+			deletedConversationId: 'conv_1',
+			activeConversationId: 'conv_2',
+			conversationTitle: 'Two',
+			activeChanged: true,
+			transcript: [{role: 'user', content: 'replacement task'}],
+			sessions: [{id: 'conv_2', title: 'Two', createdAt: 'now', updatedAt: 'now', messageCount: 1}],
+		}),
+	});
+	assert.equal(deleted.conversationId, 'conv_2');
+	assert.equal(deleted.conversationTitle, 'Two');
+	assert.equal(deleted.items.length, 1);
+	assert.equal(deleted.items[0]?.kind, 'user');
+});
+
 test('status report stores context usage and metadata', () => {
 	let state = reducer(initialState('/tmp/project', 'model'), {
 		type: 'core_event',

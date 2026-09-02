@@ -85,6 +85,14 @@ class SessionStore:
             raise ValueError("conversation does not exist")
         return self._read(path)
 
+    def delete(self, conversation_id: str) -> None:
+        if not _ID_PATTERN.fullmatch(conversation_id):
+            raise ValueError("invalid conversation id")
+        path = self.directory / f"{conversation_id}.json"
+        if not path.is_file():
+            raise ValueError("conversation does not exist")
+        path.unlink()
+
     def update_messages(
         self,
         conversation: Conversation,

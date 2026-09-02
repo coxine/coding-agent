@@ -119,7 +119,7 @@ Core 无法启动或已经异常退出。显示错误摘要，并允许退出或
 
 ### 5.6 `session_picker`
 
-用户在 Composer 输入 `/session` 后进入。面板列出当前工作区的历史对话，显示标题、更新时间、turn 数和当前项标记。方向键移动，Enter 切换，`N` 新建，Esc 关闭。Agent 运行或等待批准时不能打开或切换。
+用户在 Composer 输入 `/session` 后进入。面板列出当前工作区的历史对话，显示标题、更新时间、turn 数和当前项标记。方向键移动，Enter 切换，`N` 新建，`D` 删除（需按 `Y` 确认、`N`/Esc 取消），Esc 关闭。Agent 运行或等待批准时不能打开或切换。
 
 ### 5.7 `command_palette`
 
@@ -187,6 +187,7 @@ App
 - 空白输入不能提交。
 - Agent 活动时显示只读提示，不接受第二个任务。
 - 提交后清空输入，并在 Transcript 中立即显示用户消息。
+- `↑`/`↓` 回退/前进本次运行提交过的任务输入（内存内，不持久化）；在历史末端按 `↓` 恢复正在编辑的草稿。
 - 发送失败时恢复原输入，避免任务内容丢失。
 
 ### 6.5 `ToolCallCard`
@@ -315,9 +316,11 @@ App
 | `/rename <名称>` | 修改当前对话展示名称 | `composing` |
 | `/status` | 打开当前对话状态面板 | `composing` |
 | `/` | 唤起命令列表；继续输入可过滤 | `composing` |
+| `↑` / `↓` | 回退/前进任务输入历史 | `composing` |
 | `↑` / `↓` | 选择历史对话 | `session_picker` |
 | `Enter` | 切换到选中对话 | `session_picker` |
 | `N` | 新建并切换到空白对话 | `session_picker` |
+| `D` | 删除选中对话（需 `Y` 确认） | `session_picker` |
 | `Esc` | 关闭面板 | `session_picker` |
 | `Ctrl+Enter` | 插入换行 | `composing` |
 | `Esc` | 暂停当前 turn；暂停后再次按下继续；关闭详情 | `running` / `paused` / `details` |

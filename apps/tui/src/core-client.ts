@@ -118,6 +118,11 @@ export class CoreClient extends EventEmitter {
 		this.send(message('rename_session', {name}, {sessionId: this.sessionId}));
 	}
 
+	deleteSession(conversationId: string): void {
+		if (!this.sessionId) throw new Error('Agent Core is not initialized');
+		this.send(message('delete_session', {conversationId}, {sessionId: this.sessionId}));
+	}
+
 	shutdown(): void {
 		if (!this.process || this.process.killed) return;
 		if (this.sessionId) this.send(message('shutdown', {}, {sessionId: this.sessionId}));

@@ -264,6 +264,20 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 名称规范化连续空白后必须为 1–80 个字符。重命名只允许在没有活动 turn 时进行；成功后名称来源变为 `custom`，Core 发送 `conversation_updated`。
 
+### 6.7.2 `delete_session`
+
+删除当前工作区的一个持久化对话：
+
+```json
+{
+  "type": "delete_session",
+  "sessionId": "sess_1",
+  "payload": {"conversationId": "conv_0123456789abcdef0123456789abcdef"}
+}
+```
+
+`conversationId` 必须是当前工作区已有对话。删除不可撤销；存在活动 turn 时拒绝。若删除的是当前活动对话，Core 自动切换到更新后最近使用的对话（无剩余对话时新建空白对话）。成功后 Core 发送 `conversation_deleted`。
+
 ### 6.8 `shutdown`
 
 请求正常关闭 Core：
@@ -340,6 +354,35 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 ### 7.1.3 `conversation_updated`
 
 首次用户消息使自动标题发生变化，或用户执行 `rename_session` 时发送。payload 包含 `conversationId`、新的 `conversationTitle` 和可选的 `titleSource`。`titleSource` 为 `auto` 或 `custom`；自定义名称不会被后续 prompt 覆盖。
+
+### 7.1.3.1 `conversation_deleted`
+
+删除对话成功后发送。payload 包含被删对话 ID、删除后当前活动对话的 ID/标题、更新后的会话列表；当被删对话是活动对话时，`activeChanged` 为 `true` 并附带新活动对话的 `transcript`：
+
+```json
+{
+  "type": "conversation_deleted",
+  "sessionId": "sess_1",
+  "payload": {
+    "deletedConversationId": "conv_0123456789abcdef0123456789abcdef",
+    "activeConversationId": "conv_fedcba9876543210fedcba9876543210",
+    "conversationTitle": "修复解析器",
+    "titleSource": "auto",
+    "activeChanged": true,
+    "transcript": [
+      {"role": "user", "content": "修复解析器"}
+    ],
+    "sessions": [{
+      "id": "conv_fedcba9876543210fedcba9876543210",
+      "title": "修复解析器",
+      "createdAt": "2026-08-27T08:00:00.000000Z",
+      "updatedAt": "2026-08-27T08:04:00.000000Z",
+      "messageCount": 1,
+      "titleSource": "auto"
+    }]
+  }
+}
+```
 
 ### 7.1.4 `status_report`
 
