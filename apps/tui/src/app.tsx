@@ -363,7 +363,7 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Metadata</Text>
 				{Object.entries(report.metadata).map(([key, value]) => (
-					<StatusRow key={key} label={metadataLabel(key)} value={formatMetadata(value)} />
+					<StatusRow key={key} label={metadataLabel(key)} value={formatMetadata(key, value)} />
 				))}
 			</Box>
 			<HintLine hints={[{key: 'enter/esc', label: 'close'}]} />
@@ -581,7 +581,10 @@ function metadataLabel(key: string): string {
 	return key.replaceAll(/([A-Z])/g, ' $1').replace(/^./, character => character.toUpperCase());
 }
 
-function formatMetadata(value: string | number | boolean): string {
+function formatMetadata(key: string, value: string | number | boolean): string {
+	if ((key === 'createdAt' || key === 'updatedAt') && typeof value === 'string') {
+		return formatDate(value);
+	}
 	if (typeof value === 'number') return formatNumber(value);
 	return String(value);
 }

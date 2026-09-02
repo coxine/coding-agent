@@ -387,9 +387,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
       "persistedMessages": 36,
       "tools": 11,
       "maxSteps": 30,
-      "commandTimeoutMs": 30000,
-      "permissions": "Workspace (approval required for high-risk tools)",
-      "protocolVersion": 1
+      "permissions": "Workspace (approval required for high-risk tools)"
     }
   }
 }
