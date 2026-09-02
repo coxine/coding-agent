@@ -77,6 +77,8 @@ class CoreServer:
             await self._cancel_turn(message)
         elif message_type == "list_sessions":
             await self._list_sessions(message)
+        elif message_type == "get_status":
+            await self._get_status(message)
         elif message_type == "switch_session":
             await self._switch_session(message)
         elif message_type == "create_session":
@@ -170,6 +172,36 @@ class CoreServer:
         await self.emitter.emit(
             "sessions_listed",
             {"activeConversationId": self.conversation.id, "sessions": sessions},
+            session_id=self.session_id,
+        )
+
+    async def _get_status(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if self.config is None or self.conversation is None or self.agent is None:
+            await self._error("not_initialized", "core is not initialized")
+            return
+        await self.emitter.emit(
+            "status_report",
+            {
+                "model": self.config.model,
+                "workspaceRoot": str(self.config.workspace_root),
+                "coreSessionId": self.session_id,
+                "conversationId": self.conversation.id,
+                "context": self.agent.context_stats(),
+                "metadata": {
+                    "conversationTitle": self.conversation.title,
+                    "createdAt": self.conversation.created_at,
+                    "updatedAt": self.conversation.updated_at,
+                    "userTurns": self.conversation.summary()["messageCount"],
+                    "persistedMessages": len(self.conversation.messages),
+                    "tools": len(self.agent.tools.schemas),
+                    "maxSteps": self.config.max_steps,
+                    "commandTimeoutMs": self.config.command_timeout_ms,
+                    "permissions": "Workspace (approval required for high-risk tools)",
+                    "protocolVersion": PROTOCOL_VERSION,
+                },
+            },
             session_id=self.session_id,
         )
 

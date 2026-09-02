@@ -127,6 +127,10 @@ Core 无法启动或已经异常退出。显示错误摘要，并允许退出或
 
 Agent 需要补充信息时显示独立问题面板并接管输入焦点。Enter 提交非空回答，Ctrl+Enter 插入换行，Esc 取消该问题，Ctrl+C 取消整个 turn。
 
+### 5.9 `status`
+
+用户在空闲 Composer 中执行 `/status` 后显示只读状态面板。面板展示模型、目录、Conversation ID、Core Session ID、完整上下文长度、下一次请求长度和附加 metadata；Enter 或 Esc 关闭。
+
 ## 6. 组件结构
 
 ```text
@@ -306,6 +310,7 @@ App
 | --- | --- | --- |
 | `Enter` | 提交输入 | `composing` |
 | `/session` | 打开对话选择面板 | `composing` |
+| `/status` | 打开当前对话状态面板 | `composing` |
 | `/` | 唤起命令列表；继续输入可过滤 | `composing` |
 | `↑` / `↓` | 选择历史对话 | `session_picker` |
 | `Enter` | 切换到选中对话 | `session_picker` |
@@ -321,6 +326,7 @@ App
 | `Enter` | 提交回答 | `question` |
 | `Ctrl+Enter` | 在回答中插入换行 | `question` |
 | `Esc` | 取消当前问题并让 Agent 继续 | `question` |
+| `Enter` / `Esc` | 关闭状态面板 | `status` |
 
 为避免误退出：
 
@@ -371,6 +377,7 @@ Reducer 输入只允许：
 | 协议事件 | UI 行为 |
 | --- | --- |
 | `initialized` | 连接状态变为 ready，显示模型和工作区 |
+| `status_report` | 显示只读状态面板和上下文占用 |
 | `turn_started` | 创建 turn 记录，禁用任务提交 |
 | `agent_status` | 更新 Context Bar 状态和 step |
 | `assistant_message_started` | 创建空 Agent 消息块 |

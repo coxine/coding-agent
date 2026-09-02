@@ -31,3 +31,15 @@ class ContextManager:
 
         return system + tail
 
+    def stats(self, messages: list[dict[str, Any]]) -> dict[str, int | bool]:
+        request = self.build_request(messages)
+        total_chars = sum(self._size(message) for message in messages)
+        request_chars = sum(self._size(message) for message in request)
+        return {
+            "totalChars": total_chars,
+            "requestChars": request_chars,
+            "maxChars": self.max_chars,
+            "messageCount": len(messages),
+            "requestMessageCount": len(request),
+            "truncated": len(request) < len(messages),
+        }

@@ -220,6 +220,10 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 请求当前工作区的对话列表。payload 为空，Core 返回 `sessions_listed`。仅允许在初始化完成后调用。
 
+### 6.5.1 `get_status`
+
+请求当前 Conversation 的只读运行状态。payload 为空，Core 返回 `status_report`。该请求不修改历史，也不发送给模型。
+
 ### 6.6 `switch_session`
 
 ```json
@@ -314,6 +318,41 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 ### 7.1.3 `conversation_updated`
 
 首次用户消息使默认标题发生变化时发送，payload 包含 `conversationId` 和新的 `conversationTitle`，TUI 据此刷新顶部标题。
+
+### 7.1.4 `status_report`
+
+返回模型、工作区、Core Session ID、Conversation ID、上下文统计及非敏感 metadata。`totalChars` 是 system message 与完整历史的 JSON 字符数；`requestChars` 是上下文裁剪后下一次模型请求使用的字符数。
+
+```json
+{
+  "type": "status_report",
+  "sessionId": "sess_1",
+  "payload": {
+    "model": "model-name",
+    "workspaceRoot": "/workspace/project",
+    "coreSessionId": "sess_1",
+    "conversationId": "conv_0123456789abcdef0123456789abcdef",
+    "context": {
+      "totalChars": 42800,
+      "requestChars": 42800,
+      "maxChars": 200000,
+      "messageCount": 37,
+      "requestMessageCount": 37,
+      "truncated": false
+    },
+    "metadata": {
+      "conversationTitle": "修复解析器",
+      "userTurns": 4,
+      "persistedMessages": 36,
+      "tools": 11,
+      "maxSteps": 30,
+      "commandTimeoutMs": 30000,
+      "permissions": "Workspace (approval required for high-risk tools)",
+      "protocolVersion": 1
+    }
+  }
+}
+```
 
 ### 7.2 `turn_started`
 

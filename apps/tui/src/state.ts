@@ -41,6 +41,22 @@ export type SessionSummary = {
 	messageCount: number;
 };
 
+export type StatusReport = {
+	model: string;
+	workspaceRoot: string;
+	coreSessionId: string;
+	conversationId: string;
+	context: {
+		totalChars: number;
+		requestChars: number;
+		maxChars: number;
+		messageCount: number;
+		requestMessageCount: number;
+		truncated: boolean;
+	};
+	metadata: Record<string, string | number | boolean>;
+};
+
 export type AppState = {
 	connection: 'starting' | 'ready' | 'fatal' | 'closed';
 	sessionId?: string;
@@ -48,6 +64,7 @@ export type AppState = {
 	conversationTitle: string;
 	sessions: SessionSummary[];
 	sessionPickerOpen: boolean;
+	statusReport?: StatusReport;
 	model: string;
 	workspaceRoot: string;
 	status: string;
@@ -65,7 +82,8 @@ export type Action =
 	| {type: 'submitted'; turnId: string; text: string}
 	| {type: 'fatal'; message: string}
 	| {type: 'notice'; message: string; level?: 'info' | 'error'}
-	| {type: 'close_session_picker'};
+	| {type: 'close_session_picker'}
+	| {type: 'close_status'};
 
 export function initialState(workspaceRoot: string, model: string): AppState {
 	return {
@@ -84,6 +102,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 
 export function reducer(state: AppState, action: Action): AppState {
 	if (action.type === 'close_session_picker') return {...state, sessionPickerOpen: false};
+	if (action.type === 'close_status') return {...state, statusReport: undefined};
 	if (action.type === 'fatal') {
 		return {...state, connection: 'fatal', status: 'Failed', fatalError: action.message};
 	}
@@ -124,6 +143,8 @@ export function reducer(state: AppState, action: Action): AppState {
 				sessions: sessionSummaries(payload.sessions),
 				sessionPickerOpen: true,
 			};
+		case 'status_report':
+			return {...state, statusReport: statusReport(payload)};
 		case 'conversation_switched':
 		case 'conversation_created':
 			return {
@@ -135,6 +156,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				step: 0,
 				status: 'Ready',
 				sessionPickerOpen: false,
+				statusReport: undefined,
 			};
 		case 'conversation_updated':
 			return {
@@ -334,4 +356,27 @@ function sessionSummaries(value: unknown): SessionSummary[] {
 			messageCount: Number(record.messageCount ?? 0),
 		}];
 	});
+}
+
+function statusReport(payload: Record<string, unknown>): StatusReport {
+	const context = asRecord(payload.context);
+	const metadata = asRecord(payload.metadata);
+	return {
+		model: String(payload.model ?? ''),
+		workspaceRoot: String(payload.workspaceRoot ?? ''),
+		coreSessionId: String(payload.coreSessionId ?? ''),
+		conversationId: String(payload.conversationId ?? ''),
+		context: {
+			totalChars: Number(context.totalChars ?? 0),
+			requestChars: Number(context.requestChars ?? 0),
+			maxChars: Number(context.maxChars ?? 0),
+			messageCount: Number(context.messageCount ?? 0),
+			requestMessageCount: Number(context.requestMessageCount ?? 0),
+			truncated: Boolean(context.truncated),
+		},
+		metadata: Object.fromEntries(
+			Object.entries(metadata).filter((entry): entry is [string, string | number | boolean] =>
+				['string', 'number', 'boolean'].includes(typeof entry[1])),
+		),
+	};
 }

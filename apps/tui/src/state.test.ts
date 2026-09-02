@@ -45,6 +45,25 @@ test('session events open picker and switching replaces transcript', () => {
 	assert.equal(switched.items.length, 1);
 });
 
+test('status report stores context usage and metadata', () => {
+	let state = reducer(initialState('/tmp/project', 'model'), {
+		type: 'core_event',
+		event: message('status_report', {
+			model: 'test-model',
+			workspaceRoot: '/tmp/project',
+			coreSessionId: 'sess_1',
+			conversationId: 'conv_1',
+			context: {totalChars: 1200, requestChars: 900, maxChars: 2000, messageCount: 8, requestMessageCount: 6, truncated: true},
+			metadata: {maxSteps: 30, conversationTitle: 'Parser'},
+		}),
+	});
+	assert.equal(state.statusReport?.context.requestChars, 900);
+	assert.equal(state.statusReport?.metadata.maxSteps, 30);
+
+	state = reducer(state, {type: 'close_status'});
+	assert.equal(state.statusReport, undefined);
+});
+
 test('user input events open and close the question panel', () => {
 	let state = reducer(initialState('/tmp/project', 'model'), {
 		type: 'core_event',

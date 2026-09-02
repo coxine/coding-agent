@@ -5,6 +5,7 @@ export type SlashCommand = {
 
 export const SLASH_COMMANDS: SlashCommand[] = [
 	{name: '/session', description: 'Browse, switch, or create workspace conversations'},
+	{name: '/status', description: 'Show model, workspace, context usage, and session metadata'},
 ];
 
 export function matchingCommands(input: string): SlashCommand[] {

@@ -5,7 +5,7 @@ import {CoreClient} from './core-client.js';
 import {matchingCommands, SlashCommand} from './commands.js';
 import {MarkdownText} from './markdown.js';
 import {CoreEvent} from './protocol.js';
-import {Approval, initialState, Question, reducer, SessionSummary, ToolView, TranscriptItem} from './state.js';
+import {Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem} from './state.js';
 
 type AppProps = {
 	repositoryRoot: string;
@@ -112,6 +112,11 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 			return;
 		}
 
+		if (state.statusReport) {
+			if (key.escape || key.return) dispatch({type: 'close_status'});
+			return;
+		}
+
 		if (state.sessionPickerOpen) {
 			if (key.escape) dispatch({type: 'close_session_picker'});
 			if (key.upArrow) setSessionChoice(value => Math.max(0, value - 1));
@@ -206,6 +211,8 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 				<ApprovalDialog approval={state.pendingApproval} choice={approvalChoice} />
 			) : state.pendingQuestion ? (
 				<QuestionDialog question={state.pendingQuestion} answer={questionAnswer} />
+			) : state.statusReport ? (
+				<StatusPanel report={state.statusReport} />
 			) : state.sessionPickerOpen ? (
 				<SessionPicker sessions={state.sessions} activeId={state.conversationId} choice={sessionChoice} />
 			) : state.connection === 'fatal' ? (
@@ -219,7 +226,7 @@ export function App({repositoryRoot, workspaceRoot, model, baseUrl}: AppProps): 
 					<Composer value={input} enabled={canSubmit} />
 				</Box>
 			)}
-			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} />
+			<Footer active={Boolean(state.activeTurnId)} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} />
 		</Box>
 	);
 }
@@ -311,6 +318,37 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 	);
 }
 
+function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
+	const contextPercent = report.context.maxChars > 0
+		? Math.min(100, Math.round((report.context.requestChars / report.context.maxChars) * 100))
+		: 0;
+	const progress = progressBar(contextPercent);
+	return (
+		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
+			<Text bold color="cyan">coding-agent status</Text>
+			<Box marginTop={1} flexDirection="column">
+				<StatusRow label="Model" value={report.model} />
+				<StatusRow label="Directory" value={shortPath(report.workspaceRoot)} />
+				<StatusRow label="Conversation" value={report.conversationId} />
+				<StatusRow label="Core session" value={report.coreSessionId} />
+				<StatusRow label="Stored context" value={`${formatNumber(report.context.totalChars)} chars • ${report.context.messageCount} messages`} />
+				<StatusRow label="Next request" value={`${progress} ${contextPercent}% • ${formatNumber(report.context.requestChars)} / ${formatNumber(report.context.maxChars)} chars${report.context.truncated ? ' • trimmed' : ''}`} />
+			</Box>
+			<Box marginTop={1} flexDirection="column">
+				<Text bold>Metadata</Text>
+				{Object.entries(report.metadata).map(([key, value]) => (
+					<StatusRow key={key} label={metadataLabel(key)} value={formatMetadata(value)} />
+				))}
+			</Box>
+			<HintLine hints={[{key: 'enter/esc', label: 'close'}]} />
+		</Box>
+	);
+}
+
+function StatusRow({label, value}: {label: string; value: string}): React.ReactNode {
+	return <Text><Text dimColor>{`${label}:`.padEnd(20)}</Text>{value}</Text>;
+}
+
 function CommandPalette({commands, choice}: {commands: SlashCommand[]; choice: number}): React.ReactNode {
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1} marginBottom={1}>
@@ -346,7 +384,7 @@ export function Composer({value, enabled}: {value: string; enabled: boolean}): R
 	);
 }
 
-function Footer({active, approval, question, sessions}: {active: boolean; approval: boolean; question: boolean; sessions: boolean}): React.ReactNode {
+function Footer({active, approval, question, sessions, status}: {active: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean}): React.ReactNode {
 	const hints: Hint[] = approval
 		? [
 			{key: 'y', label: 'allow'},
@@ -361,6 +399,8 @@ function Footer({active, approval, question, sessions}: {active: boolean; approv
 				{key: 'esc', label: 'skip'},
 				{key: 'ctrl+c', label: 'cancel task'},
 			]
+		: status
+			? [{key: 'enter/esc', label: 'close status'}]
 		: sessions
 			? [
 				{key: '↑/↓', label: 'select'},
@@ -376,6 +416,7 @@ function Footer({active, approval, question, sessions}: {active: boolean; approv
 			: [
 				{key: 'enter', label: 'send'},
 				{key: '/session', label: 'history'},
+				{key: '/status', label: 'info'},
 				{key: 'ctrl+enter', label: 'newline'},
 				{key: 'ctrl+c', label: 'exit'},
 			];
@@ -406,6 +447,7 @@ function formatDate(value: string): string {
 
 function runSlashCommand(name: string, client: CoreClient): void {
 	if (name === '/session') client.listSessions();
+	if (name === '/status') client.requestStatus();
 }
 
 function Spinner(): React.ReactNode {
@@ -425,4 +467,22 @@ function sanitize(text: string): string {
 function shortPath(path: string): string {
 	const home = process.env.HOME;
 	return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+function progressBar(percent: number): string {
+	const filled = Math.round(percent / 5);
+	return `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}]`;
+}
+
+function formatNumber(value: number): string {
+	return Number.isFinite(value) ? value.toLocaleString('en-US') : '0';
+}
+
+function metadataLabel(key: string): string {
+	return key.replaceAll(/([A-Z])/g, ' $1').replace(/^./, character => character.toUpperCase());
+}
+
+function formatMetadata(value: string | number | boolean): string {
+	if (typeof value === 'number') return formatNumber(value);
+	return String(value);
 }

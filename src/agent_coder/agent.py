@@ -209,6 +209,9 @@ class Agent:
         if self.persist_messages is not None:
             await self.persist_messages(self.messages[1:])
 
+    def context_stats(self) -> dict[str, int | bool]:
+        return self.context.stats(self.messages)
+
     @staticmethod
     def _tool_message(tool_call_id: str, result: ToolResult) -> dict[str, Any]:
         return {
