@@ -3,21 +3,16 @@ import test from 'node:test';
 import {initialState, reducer} from './state.js';
 import {message} from './protocol.js';
 
-test('initialized restores transcript and active conversation', () => {
+test('initialized starts with a blank transcript and no active conversation', () => {
 	const state = reducer(initialState('/tmp/project', 'model'), {
 		type: 'core_event',
 		event: message('initialized', {
-			conversationId: 'conv_1',
-			conversationTitle: 'Fix parser',
-			transcript: [
-				{role: 'user', content: 'Fix it'},
-				{role: 'assistant', content: '**Done**'},
-			],
+			transcript: [],
 		}),
 	});
-	assert.equal(state.conversationId, 'conv_1');
-	assert.equal(state.conversationTitle, 'Fix parser');
-	assert.deepEqual(state.items.map(item => item.kind), ['user', 'assistant']);
+	assert.equal(state.conversationId, '');
+	assert.equal(state.conversationTitle, 'New session');
+	assert.deepEqual(state.items, []);
 });
 
 test('session events open picker and switching replaces transcript', () => {
@@ -89,6 +84,27 @@ test('conversation_deleted with activeChanged rebuilds the transcript', () => {
 	assert.equal(deleted.conversationTitle, 'Two');
 	assert.equal(deleted.items.length, 1);
 	assert.equal(deleted.items[0]?.kind, 'user');
+});
+
+test('deleting the final active conversation returns to a blank workspace', () => {
+	const initial = reducer(initialState('/tmp/project', 'model'), {
+		type: 'core_event',
+		event: message('conversation_updated', {conversationId: 'conv_1', conversationTitle: 'One'}),
+	});
+	const deleted = reducer(initial, {
+		type: 'core_event',
+		event: message('conversation_deleted', {
+			deletedConversationId: 'conv_1',
+			activeConversationId: null,
+			conversationTitle: 'New session',
+			activeChanged: true,
+			transcript: [],
+			sessions: [],
+		}),
+	});
+	assert.equal(deleted.conversationId, '');
+	assert.equal(deleted.conversationTitle, 'New session');
+	assert.deepEqual(deleted.items, []);
 });
 
 test('status report stores context usage and metadata', () => {

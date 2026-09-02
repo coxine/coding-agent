@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,6 +12,54 @@ from agent_coder.config import AgentConfig
 from agent_coder.protocol import ProtocolEmitter
 from agent_coder.server import CoreServer
 from agent_coder.sessions import Conversation, SessionStore
+
+
+@pytest.mark.asyncio
+async def test_initialization_starts_blank_even_when_sessions_exist(tmp_path, monkeypatch) -> None:
+    existing = SessionStore(tmp_path).create()
+    output = io.StringIO()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    server = CoreServer(emitter=ProtocolEmitter(output))
+
+    await server._initialize(
+        {"payload": {"workspaceRoot": str(tmp_path), "model": "test-model"}}
+    )
+
+    event = json.loads(output.getvalue().splitlines()[0])
+    assert event["type"] == "initialized"
+    assert event["payload"]["transcript"] == []
+    assert "conversationId" not in event["payload"]
+    assert server.conversation is None
+    assert server.agent is None
+    assert server.session_store.list()[0]["id"] == existing.id
+
+
+@pytest.mark.asyncio
+async def test_first_task_creates_a_session_from_the_blank_workspace(tmp_path) -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+    server.config = AgentConfig(
+        workspace_root=tmp_path,
+        api_key="unused",
+        base_url="https://example.invalid/v1",
+        model="test-model",
+    )
+    server.session_store = SessionStore(tmp_path)
+    agent = SimpleNamespace(run_turn=AsyncMock())
+    server._build_agent = lambda conversation: agent  # type: ignore[method-assign]
+
+    await server._submit_task(
+        {"sessionId": "sess_test", "turnId": "turn_1", "payload": {"text": "Fix the parser"}}
+    )
+    await asyncio.sleep(0)
+
+    assert server.conversation is not None
+    assert server.session_store.list()[0]["id"] == server.conversation.id
+    assert [event["type"] for event in map(json.loads, output.getvalue().splitlines())] == [
+        "conversation_updated"
+    ]
+    agent.run_turn.assert_awaited_once_with("turn_1", "Fix the parser")
 
 
 @pytest.mark.asyncio

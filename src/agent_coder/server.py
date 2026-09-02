@@ -131,17 +131,12 @@ class CoreServer:
         self.session_id = new_id("sess")
         self.config = config
         self.session_store = SessionStore(config.workspace_root)
-        self.conversation = self.session_store.latest_or_create()
-        self.agent = self._build_agent(self.conversation)
         await self.emitter.emit(
             "initialized",
             {
                 "workspaceRoot": str(config.workspace_root),
                 "model": config.model,
-                "conversationId": self.conversation.id,
-                "conversationTitle": self.conversation.title,
-                "titleSource": self.conversation.title_source,
-                "transcript": self.session_store.transcript(self.conversation.messages),
+                "transcript": [],
                 "capabilities": {
                     "streaming": True,
                     "toolCalling": True,
@@ -213,12 +208,15 @@ class CoreServer:
     async def _list_sessions(self, message: dict[str, Any]) -> None:
         if not await self._check_session(message):
             return
-        if self.session_store is None or self.conversation is None:
+        if self.session_store is None:
             return
         sessions = await asyncio.to_thread(self.session_store.list)
         await self.emitter.emit(
             "sessions_listed",
-            {"activeConversationId": self.conversation.id, "sessions": sessions},
+            {
+                "activeConversationId": self.conversation.id if self.conversation else None,
+                "sessions": sessions,
+            },
             session_id=self.session_id,
         )
 
@@ -226,7 +224,7 @@ class CoreServer:
         if not await self._check_session(message):
             return
         if self.config is None or self.conversation is None or self.agent is None:
-            await self._error("not_initialized", "core is not initialized")
+            await self._error("no_active_conversation", "submit a task or select a session first")
             return
         token_usage = (
             self.session_store.usage_summary(self.conversation)
@@ -259,7 +257,7 @@ class CoreServer:
         if not await self._check_session(message):
             return
         if self.agent is None:
-            await self._error("not_initialized", "core is not initialized")
+            await self._error("no_active_conversation", "submit a task or select a session first")
             return
         if self.active_task and not self.active_task.done():
             await self._error("turn_already_running", "cannot compact while a turn is running")
@@ -338,19 +336,26 @@ class CoreServer:
 
         active_changed = self.conversation.id == conversation_id
         if active_changed:
-            self.conversation = await asyncio.to_thread(self.session_store.latest_or_create)
-            self.agent = self._build_agent(self.conversation)
+            sessions = await asyncio.to_thread(self.session_store.list)
+            if sessions:
+                self.conversation = await asyncio.to_thread(
+                    self.session_store.load, sessions[0]["id"]
+                )
+                self.agent = self._build_agent(self.conversation)
+            else:
+                self.conversation = None
+                self.agent = None
         sessions = await asyncio.to_thread(self.session_store.list)
         await self.emitter.emit(
             "conversation_deleted",
             {
                 "deletedConversationId": conversation_id,
-                "activeConversationId": self.conversation.id,
-                "conversationTitle": self.conversation.title,
-                "titleSource": self.conversation.title_source,
+                "activeConversationId": self.conversation.id if self.conversation else None,
+                "conversationTitle": self.conversation.title if self.conversation else "New session",
+                "titleSource": self.conversation.title_source if self.conversation else "auto",
                 "transcript": self.session_store.transcript(self.conversation.messages)
-                if active_changed
-                else None,
+                if active_changed and self.conversation
+                else [],
                 "activeChanged": active_changed,
                 "sessions": sessions,
             },
@@ -379,9 +384,6 @@ class CoreServer:
     async def _submit_task(self, message: dict[str, Any]) -> None:
         if not await self._check_session(message):
             return
-        if self.agent is None:
-            await self._error("not_initialized", "core is not initialized")
-            return
         if self.active_task and not self.active_task.done():
             await self._error("turn_already_running", "a turn is already running")
             return
@@ -393,6 +395,21 @@ class CoreServer:
         if not isinstance(text, str) or not text.strip():
             await self._error("invalid_message", "payload.text must be a non-empty string")
             return
+
+        if self.conversation is None:
+            assert self.session_store is not None
+            self.conversation = await asyncio.to_thread(self.session_store.create)
+            self.agent = self._build_agent(self.conversation)
+            await self.emitter.emit(
+                "conversation_updated",
+                {
+                    "conversationId": self.conversation.id,
+                    "conversationTitle": self.conversation.title,
+                    "titleSource": self.conversation.title_source,
+                },
+                session_id=self.session_id,
+            )
+        assert self.agent is not None
 
         self.active_turn_id = turn_id
         self.turn_resume_event.set()

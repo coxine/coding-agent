@@ -214,8 +214,12 @@ export function reducer(state: AppState, action: Action): AppState {
 			const activeChanged = Boolean(payload.activeChanged);
 			const next: AppState = {
 				...state,
-				conversationId: String(payload.activeConversationId ?? state.conversationId ?? ''),
-				conversationTitle: String(payload.conversationTitle ?? state.conversationTitle),
+				conversationId: activeChanged
+					? String(payload.activeConversationId ?? '')
+					: String(payload.activeConversationId ?? state.conversationId ?? ''),
+				conversationTitle: activeChanged
+					? String(payload.conversationTitle ?? 'New session')
+					: String(payload.conversationTitle ?? state.conversationTitle),
 				sessions: sessionSummaries(payload.sessions),
 			};
 			if (!activeChanged) return next;

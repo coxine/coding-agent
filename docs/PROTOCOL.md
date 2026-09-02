@@ -280,7 +280,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 }
 ```
 
-`conversationId` 必须是当前工作区已有对话。删除不可撤销；存在活动 turn 时拒绝。若删除的是当前活动对话，Core 自动切换到更新后最近使用的对话（无剩余对话时新建空白对话）。成功后 Core 发送 `conversation_deleted`。
+`conversationId` 必须是当前工作区已有对话。删除不可撤销；存在活动 turn 时拒绝。若删除的是当前活动对话，Core 自动切换到更新后最近使用的对话；无剩余对话时回到空白界面。成功后 Core 发送 `conversation_deleted`。
 
 ### 6.8 `shutdown`
 
@@ -313,12 +313,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
   "payload": {
     "workspaceRoot": "/absolute/path/to/project",
     "model": "model-name",
-    "conversationId": "conv_0123456789abcdef0123456789abcdef",
-    "conversationTitle": "修复价格计算精度问题",
-    "transcript": [
-      {"role": "user", "content": "修复价格计算精度问题"},
-      {"role": "assistant", "content": "已完成。"}
-    ],
+    "transcript": [],
     "capabilities": {
       "streaming": true,
       "toolCalling": true,
@@ -328,7 +323,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 }
 ```
 
-只有工作区、模型配置、工具注册表和协议均通过校验后才能发送。
+只有工作区、模型配置、工具注册表和协议均通过校验后才能发送。初始化始终使用空白界面，不包含 `conversationId`；用户发送第一条任务时才创建会话，也可以随后通过 `list_sessions` 和 `switch_session` 选择历史会话。
 
 ### 7.1.1 `sessions_listed`
 
@@ -350,6 +345,8 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
   }
 }
 ```
+
+空白启动且尚未选择或创建会话时，`activeConversationId` 为 `null`。
 
 ### 7.1.2 `conversation_switched` 与 `conversation_created`
 
@@ -897,6 +894,7 @@ Core 已停止接收任务、清理子进程和刷新日志后发送，随后以
 | `invalid_message` | 信封或 payload 不符合要求 | 否 |
 | `protocol_version_mismatch` | 协议版本不兼容 | 是 |
 | `not_initialized` | 初始化前发送了业务消息 | 否 |
+| `no_active_conversation` | 尚未选择或创建对话就请求依赖对话的操作 | 否 |
 | `already_initialized` | 重复初始化 | 否 |
 | `session_mismatch` | session ID 不匹配 | 否 |
 | `turn_already_running` | 已有活动任务 | 否 |
