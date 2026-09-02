@@ -5,7 +5,7 @@ import { CoreClient } from './core-client.js';
 import { matchingCommands, parseSlashCommand, SlashCommand } from './commands.js';
 import { MarkdownText } from './markdown.js';
 import { CoreEvent } from './protocol.js';
-import { Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem } from './state.js';
+import { Approval, AssistantView, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem } from './state.js';
 import { tokenBarSegments, TokenSegmentKind } from './token-bar.js';
 
 type AppProps = {
@@ -72,7 +72,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 	const canSubmit = state.connection === 'ready' && !state.activeTurnId;
 	const commands = useMemo(() => matchingCommands(input), [input]);
 	const commandPaletteOpen = canSubmit && commands.length > 0;
-	const hasReasoning = state.items.some(item => item.kind === 'assistant' && Boolean(item.reasoning));
+	const hasReasoning = state.items.some(item => item.kind === 'assistant' && Boolean(state.assistants[item.id]?.reasoning));
 
 	useEffect(() => {
 		setCommandChoice(0);
@@ -239,7 +239,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				{state.items.length === 0 ? (
 					<Text dimColor>Describe a coding task. The agent can inspect, edit, and test this workspace.</Text>
 				) : (
-					state.items.map(item => <Transcript key={`${item.kind}-${item.id}`} item={item} tool={item.kind === 'tool' ? state.tools[item.id] : undefined} showReasoning={state.showReasoning} />)
+					state.items.map(item => <Transcript key={`${item.kind}-${item.id}`} item={item} tool={item.kind === 'tool' ? state.tools[item.id] : undefined} assistant={item.kind === 'assistant' ? state.assistants[item.id] : undefined} showReasoning={state.showReasoning} />)
 				)}
 			</Box>
 			{state.pendingApproval ? (
@@ -275,7 +275,7 @@ function Header({ model, workspace, conversation, status, step }: { model: strin
 	);
 }
 
-export function Transcript({ item, tool, showReasoning = false }: { item: TranscriptItem; tool?: ToolView; showReasoning?: boolean }): React.ReactNode {
+export function Transcript({ item, tool, assistant, showReasoning = false }: { item: TranscriptItem; tool?: ToolView; assistant?: AssistantView; showReasoning?: boolean }): React.ReactNode {
 	if (item.kind === 'user') {
 		return (
 			<Box width="100%" backgroundColor="#eeeeee" paddingX={1} marginBottom={1}>
@@ -284,22 +284,23 @@ export function Transcript({ item, tool, showReasoning = false }: { item: Transc
 		);
 	}
 	if (item.kind === 'assistant') {
-		const hasReasoning = Boolean(item.reasoning);
-		if (!item.text && !item.finished) {
+		if (!assistant) return null;
+		const hasReasoning = Boolean(assistant.reasoning);
+		if (!assistant.text && !assistant.finished) {
 			return (
 				<Box flexDirection="column" marginBottom={1}>
-					{hasReasoning && showReasoning ? <ReasoningBlock text={item.reasoning ?? ''} /> : null}
+					{hasReasoning && showReasoning ? <ReasoningBlock text={assistant.reasoning} /> : null}
 					<Spinner />
 				</Box>
 			);
 		}
-		if (!item.text && !hasReasoning) return null;
+		if (!assistant.text && !hasReasoning) return null;
 		return (
 			<Box flexDirection="column" marginBottom={1}>
 				{hasReasoning ? (
-					showReasoning ? <ReasoningBlock text={item.reasoning ?? ''} /> : <ReasoningHidden />
+					showReasoning ? <ReasoningBlock text={assistant.reasoning} /> : <ReasoningHidden />
 				) : null}
-				{item.text ? <MarkdownText>{item.text}</MarkdownText> : null}
+				{assistant.text ? <MarkdownText>{assistant.text}</MarkdownText> : null}
 			</Box>
 		);
 	}

@@ -16,9 +16,15 @@ export type ToolView = {
 
 export type TranscriptItem =
 	| {kind: 'user'; id: string; text: string}
-	| {kind: 'assistant'; id: string; text: string; finished: boolean; reasoning?: string}
+	| {kind: 'assistant'; id: string}
 	| {kind: 'tool'; id: string}
 	| {kind: 'notice'; id: string; text: string; level: 'info' | 'error'};
+
+export type AssistantView = {
+	text: string;
+	reasoning: string;
+	finished: boolean;
+};
 
 export type Approval = {
 	toolCallId: string;
@@ -98,6 +104,7 @@ export type AppState = {
 	showReasoning: boolean;
 	items: TranscriptItem[];
 	tools: Record<string, ToolView>;
+	assistants: Record<string, AssistantView>;
 	pendingApproval?: Approval;
 	pendingQuestion?: Question;
 	fatalError?: string;
@@ -126,6 +133,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 		showReasoning: false,
 		items: [],
 		tools: {},
+		assistants: {},
 	};
 }
 
@@ -155,7 +163,8 @@ export function reducer(state: AppState, action: Action): AppState {
 	const event = action.event;
 	const payload = event.payload;
 	switch (event.type) {
-		case 'initialized':
+		case 'initialized': {
+			const transcript = transcriptItems(payload.transcript);
 			return {
 				...state,
 				connection: 'ready',
@@ -164,9 +173,11 @@ export function reducer(state: AppState, action: Action): AppState {
 				workspaceRoot: String(payload.workspaceRoot ?? state.workspaceRoot),
 				conversationId: String(payload.conversationId ?? ''),
 				conversationTitle: String(payload.conversationTitle ?? 'New session'),
-				items: transcriptItems(payload.transcript),
+				items: transcript.items,
+				assistants: transcript.assistants,
 				status: 'Ready',
 			};
+		}
 		case 'sessions_listed':
 			return {
 				...state,
@@ -177,12 +188,14 @@ export function reducer(state: AppState, action: Action): AppState {
 		case 'status_report':
 			return {...state, statusReport: statusReport(payload)};
 		case 'conversation_switched':
-		case 'conversation_created':
+		case 'conversation_created': {
+			const transcript = transcriptItems(payload.transcript);
 			return {
 				...state,
 				conversationId: String(payload.conversationId ?? ''),
 				conversationTitle: String(payload.conversationTitle ?? 'New session'),
-				items: transcriptItems(payload.transcript),
+				items: transcript.items,
+				assistants: transcript.assistants,
 				tools: {},
 				step: 0,
 				paused: false,
@@ -190,6 +203,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				sessionPickerOpen: false,
 				statusReport: undefined,
 			};
+		}
 		case 'conversation_updated':
 			return {
 				...state,
@@ -205,9 +219,11 @@ export function reducer(state: AppState, action: Action): AppState {
 				sessions: sessionSummaries(payload.sessions),
 			};
 			if (!activeChanged) return next;
+			const transcript = transcriptItems(payload.transcript);
 			return {
 				...next,
-				items: transcriptItems(payload.transcript),
+				items: transcript.items,
+				assistants: transcript.assistants,
 				tools: {},
 				step: 0,
 				paused: false,
@@ -223,42 +239,44 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {...state, paused: false, status: 'Resuming'};
 		case 'assistant_message_started': {
 			const id = String(payload.assistantMessageId);
-			return {...state, items: [...state.items, {kind: 'assistant', id, text: '', finished: false}]};
+			return {
+				...state,
+				items: [...state.items, {kind: 'assistant', id}],
+				assistants: {...state.assistants, [id]: {text: '', reasoning: '', finished: false}},
+			};
 		}
 		case 'assistant_delta': {
 			const id = String(payload.assistantMessageId);
+			const existing = state.assistants[id];
+			if (!existing) return state;
 			return {
 				...state,
-				items: state.items.map(item =>
-					item.kind === 'assistant' && item.id === id ? {...item, text: item.text + String(payload.text ?? '')} : item,
-				),
+				assistants: {...state.assistants, [id]: {...existing, text: existing.text + String(payload.text ?? '')}},
 			};
 		}
 		case 'assistant_reasoning_delta': {
 			const id = String(payload.assistantMessageId);
+			const existing = state.assistants[id];
+			if (!existing) return state;
 			return {
 				...state,
-				items: state.items.map(item =>
-					item.kind === 'assistant' && item.id === id
-						? {...item, reasoning: (item.reasoning ?? '') + String(payload.text ?? '')}
-						: item,
-				),
+				assistants: {...state.assistants, [id]: {...existing, reasoning: existing.reasoning + String(payload.text ?? '')}},
 			};
 		}
 		case 'assistant_message_finished': {
 			const id = String(payload.assistantMessageId);
+			const existing = state.assistants[id];
+			if (!existing) return state;
 			return {
 				...state,
-				items: state.items.map(item =>
-					item.kind === 'assistant' && item.id === id
-						? {
-								...item,
-								text: String(payload.text ?? item.text),
-								reasoning: String(payload.reasoning ?? item.reasoning ?? ''),
-								finished: true,
-							}
-						: item,
-				),
+				assistants: {
+					...state.assistants,
+					[id]: {
+						text: String(payload.text ?? existing.text),
+						reasoning: String(payload.reasoning ?? existing.reasoning),
+						finished: true,
+					},
+				},
 			};
 		}
 		case 'tool_requested': {
@@ -403,17 +421,25 @@ function errorText(payload: Record<string, unknown>): string {
 	return String(error.message ?? 'Task failed');
 }
 
-function transcriptItems(value: unknown): TranscriptItem[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((entry, index): TranscriptItem[] => {
-		const record = asRecord(entry);
-		const role = record.role;
-		const text = record.content;
-		if (typeof text !== 'string' || (role !== 'user' && role !== 'assistant')) return [];
-		return role === 'user'
-			? [{kind: 'user', id: `history-user-${index}`, text}]
-			: [{kind: 'assistant', id: `history-assistant-${index}`, text, finished: true}];
-	});
+function transcriptItems(value: unknown): {items: TranscriptItem[]; assistants: Record<string, AssistantView>} {
+	const items: TranscriptItem[] = [];
+	const assistants: Record<string, AssistantView> = {};
+	if (Array.isArray(value)) {
+		value.forEach((entry, index) => {
+			const record = asRecord(entry);
+			const role = record.role;
+			const text = record.content;
+			if (typeof text !== 'string' || (role !== 'user' && role !== 'assistant')) return;
+			if (role === 'user') {
+				items.push({kind: 'user', id: `history-user-${index}`, text});
+			} else {
+				const id = `history-assistant-${index}`;
+				items.push({kind: 'assistant', id});
+				assistants[id] = {text, reasoning: '', finished: true};
+			}
+		});
+	}
+	return {items, assistants};
 }
 
 function sessionSummaries(value: unknown): SessionSummary[] {

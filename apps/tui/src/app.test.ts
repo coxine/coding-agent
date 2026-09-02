@@ -30,7 +30,8 @@ test('user messages use a full-width light background without a role label', () 
 test('assistant messages render without a role label', () => {
 	const output = renderToString(
 		React.createElement(Transcript, {
-			item: {kind: 'assistant', id: 'assistant-1', text: '这是项目介绍。', finished: true},
+			item: {kind: 'assistant', id: 'assistant-1'},
+			assistant: {text: '这是项目介绍。', reasoning: '', finished: true},
 		}),
 		{columns: 40},
 	);
@@ -42,7 +43,8 @@ test('assistant messages render without a role label', () => {
 test('assistant reasoning is hidden by default and expands with the toggle prop', () => {
 	const hidden = renderToString(
 		React.createElement(Transcript, {
-			item: {kind: 'assistant', id: 'assistant-1', text: 'Done', finished: true, reasoning: 'Private thought'},
+			item: {kind: 'assistant', id: 'assistant-1'},
+			assistant: {text: 'Done', reasoning: 'Private thought', finished: true},
 		}),
 		{columns: 60},
 	);
@@ -51,7 +53,8 @@ test('assistant reasoning is hidden by default and expands with the toggle prop'
 
 	const shown = renderToString(
 		React.createElement(Transcript, {
-			item: {kind: 'assistant', id: 'assistant-1', text: 'Done', finished: true, reasoning: 'Private thought'},
+			item: {kind: 'assistant', id: 'assistant-1'},
+			assistant: {text: 'Done', reasoning: 'Private thought', finished: true},
 			showReasoning: true,
 		}),
 		{columns: 60},

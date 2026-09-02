@@ -205,3 +205,32 @@ async def test_core_deleting_active_session_switches_to_latest(tmp_path) -> None
     assert event["payload"]["activeConversationId"] == other.id
     assert server.conversation.id == other.id
     assert event["payload"]["transcript"][0]["content"] == "keep me"
+
+
+@pytest.mark.asyncio
+async def test_run_processes_lines_until_shutdown() -> None:
+    output = io.StringIO()
+    stream = io.StringIO(
+        "not json\n"
+        + json.dumps(
+            {
+                "protocolVersion": 1,
+                "type": "shutdown",
+                "messageId": "msg_1",
+                "timestamp": "2026-09-02T00:00:00Z",
+                "sessionId": "sess_x",
+                "payload": {},
+            }
+        )
+        + "\n"
+    )
+    server = CoreServer(input_stream=stream, emitter=ProtocolEmitter(output))
+    server.session_id = "sess_x"
+
+    code = await server.run()
+
+    assert code == 0
+    events = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert events[0]["type"] == "error"
+    assert events[0]["payload"]["code"] == "invalid_json"
+    assert events[-1]["type"] == "shutdown_complete"

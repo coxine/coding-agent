@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 from typing import Any, TextIO
 
 from .agent import Agent
@@ -36,8 +37,21 @@ class CoreServer:
         self.shutting_down = False
 
     async def run(self) -> int:
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def read_lines() -> None:
+            try:
+                for line in self.input_stream:
+                    loop.call_soon_threadsafe(queue.put_nowait, line)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, "")
+
+        reader = threading.Thread(target=read_lines, name="core-stdin-reader", daemon=True)
+        reader.start()
+
         while not self.shutting_down:
-            line = await asyncio.to_thread(self.input_stream.readline)
+            line = await queue.get()
             if line == "":
                 await self._shutdown(emit_complete=False)
                 break

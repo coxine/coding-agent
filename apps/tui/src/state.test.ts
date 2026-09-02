@@ -198,7 +198,7 @@ test('reasoning deltas are hidden by default and can be toggled', () => {
 
 	const assistant = state.items.find(item => item.kind === 'assistant');
 	assert.equal(assistant?.kind, 'assistant');
-	assert.equal(assistant?.reasoning, 'Think hard.');
+	assert.equal(state.assistants.asst_1?.reasoning, 'Think hard.');
 	assert.equal(state.showReasoning, false);
 
 	state = reducer(state, {type: 'toggle_reasoning'});

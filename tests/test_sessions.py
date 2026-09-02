@@ -160,3 +160,83 @@ def test_delete_removes_conversation_and_rejects_invalid(tmp_path) -> None:
         store.load(conversation.id)
     with pytest.raises(ValueError, match="invalid conversation id"):
         store.delete("../../secret")
+
+
+def test_messages_appended_incrementally_not_rewritten(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.update_messages(conversation, [{"role": "user", "content": "one"}])
+    store.update_messages(
+        conversation,
+        [
+            {"role": "user", "content": "one"},
+            {"role": "assistant", "content": "two"},
+        ],
+    )
+
+    messages_path = store.directory / f"{conversation.id}.messages.jsonl"
+    lines = [line for line in messages_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(lines) == 2
+
+    meta = json.loads((store.directory / f"{conversation.id}.json").read_text(encoding="utf-8"))
+    assert "messages" not in meta
+    assert meta["version"] == 2
+    assert meta["messageCount"] == 1
+
+
+def test_legacy_v1_session_migrates_on_save(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    meta_path = store.directory / f"{conversation.id}.json"
+    meta_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "id": conversation.id,
+                "title": "Legacy",
+                "createdAt": conversation.created_at,
+                "updatedAt": conversation.updated_at,
+                "titleSource": "auto",
+                "messages": [{"role": "user", "content": "old task"}],
+                "usage": [],
+                "compactState": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = store.load(conversation.id)
+    assert loaded.messages == [{"role": "user", "content": "old task"}]
+
+    store.update_messages(
+        loaded,
+        [{"role": "user", "content": "old task"}, {"role": "assistant", "content": "done"}],
+    )
+    assert "messages" not in json.loads(meta_path.read_text(encoding="utf-8"))
+    messages_path = store.directory / f"{conversation.id}.messages.jsonl"
+    assert len([line for line in messages_path.read_text(encoding="utf-8").splitlines() if line.strip()]) == 2
+
+
+def test_partial_trailing_message_is_skipped(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.update_messages(conversation, [{"role": "user", "content": "one"}])
+
+    messages_path = store.directory / f"{conversation.id}.messages.jsonl"
+    with open(messages_path, "a", encoding="utf-8") as stream:
+        stream.write('{"role": "user", "content": "trunc')
+
+    loaded = store.load(conversation.id)
+    assert len(loaded.messages) == 1
+
+
+def test_delete_removes_message_log(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.update_messages(conversation, [{"role": "user", "content": "one"}])
+
+    messages_path = store.directory / f"{conversation.id}.messages.jsonl"
+    assert messages_path.is_file()
+
+    store.delete(conversation.id)
+    assert not messages_path.exists()

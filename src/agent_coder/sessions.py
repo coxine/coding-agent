@@ -13,7 +13,7 @@ from typing import Any
 from .protocol import new_id
 
 
-SESSION_VERSION = 1
+SESSION_VERSION = 2
 _ID_PATTERN = re.compile(r"^conv_[0-9a-f]{32}$")
 _ALLOWED_ROLES = {"user", "assistant", "tool"}
 
@@ -32,6 +32,8 @@ class Conversation:
     title_source: str = "auto"
     usage_records: list[dict[str, Any]] = field(default_factory=list)
     compact_state: dict[str, Any] = field(default_factory=dict)
+    message_count: int = 0
+    persisted_message_count: int = 0
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -39,7 +41,7 @@ class Conversation:
             "title": self.title,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            "messageCount": sum(1 for message in self.messages if message.get("role") == "user"),
+            "messageCount": self.message_count,
             "titleSource": self.title_source,
         }
 
@@ -68,14 +70,14 @@ class SessionStore:
         return self.load(conversations[0]["id"]) if conversations else self.create()
 
     def list(self) -> list[dict[str, Any]]:
-        conversations: list[Conversation] = []
+        summaries: list[dict[str, Any]] = []
         for path in self.directory.glob("conv_*.json"):
             try:
-                conversations.append(self._read(path))
+                summaries.append(self._read_summary(path))
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
-        conversations.sort(key=lambda item: item.updated_at, reverse=True)
-        return [conversation.summary() for conversation in conversations]
+        summaries.sort(key=lambda item: item["updatedAt"], reverse=True)
+        return summaries
 
     def load(self, conversation_id: str) -> Conversation:
         if not _ID_PATTERN.fullmatch(conversation_id):
@@ -92,6 +94,9 @@ class SessionStore:
         if not path.is_file():
             raise ValueError("conversation does not exist")
         path.unlink()
+        messages_path = self._messages_path(conversation_id)
+        if messages_path.is_file():
+            messages_path.unlink()
 
     def update_messages(
         self,
@@ -102,6 +107,9 @@ class SessionStore:
         conversation.messages = deepcopy(messages)
         if compact_state is not None:
             conversation.compact_state = deepcopy(compact_state)
+        conversation.message_count = sum(
+            1 for message in conversation.messages if message.get("role") == "user"
+        )
         conversation.updated_at = _now()
         if conversation.title_source == "auto":
             conversation.title = self._title(messages)
@@ -164,6 +172,13 @@ class SessionStore:
         }
 
     def save(self, conversation: Conversation) -> None:
+        self._write_metadata(conversation)
+        self._append_messages(conversation)
+
+    def _messages_path(self, conversation_id: str) -> Path:
+        return self.directory / f"{conversation_id}.messages.jsonl"
+
+    def _write_metadata(self, conversation: Conversation) -> None:
         if not _ID_PATTERN.fullmatch(conversation.id):
             raise ValueError("invalid conversation id")
         payload = {
@@ -173,7 +188,7 @@ class SessionStore:
             "createdAt": conversation.created_at,
             "updatedAt": conversation.updated_at,
             "titleSource": conversation.title_source,
-            "messages": conversation.messages,
+            "messageCount": conversation.message_count,
             "usage": conversation.usage_records,
             "compactState": conversation.compact_state,
         }
@@ -194,6 +209,20 @@ class SessionStore:
             if os.path.exists(temporary_name):
                 os.unlink(temporary_name)
 
+    def _append_messages(self, conversation: Conversation) -> None:
+        new_messages = conversation.messages[conversation.persisted_message_count :]
+        if not new_messages:
+            return
+        path = self._messages_path(conversation.id)
+        with open(path, "a", encoding="utf-8") as stream:
+            for message in new_messages:
+                stream.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
+                stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(path, 0o600)
+        conversation.persisted_message_count = len(conversation.messages)
+
     @staticmethod
     def transcript(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         result: list[dict[str, str]] = []
@@ -206,16 +235,13 @@ class SessionStore:
 
     def _read(self, path: Path) -> Conversation:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("version") != SESSION_VERSION:
+        if not isinstance(data, dict) or data.get("version") not in (1, SESSION_VERSION):
             raise ValueError("unsupported session file")
         conversation_id = data.get("id")
         if not isinstance(conversation_id, str) or not _ID_PATTERN.fullmatch(conversation_id):
             raise ValueError("invalid conversation id")
         if path.name != f"{conversation_id}.json":
             raise ValueError("conversation id does not match filename")
-        messages = data.get("messages")
-        if not isinstance(messages, list) or not all(self._valid_message(item) for item in messages):
-            raise ValueError("invalid conversation messages")
         title = data.get("title")
         created_at = data.get("createdAt")
         updated_at = data.get("updatedAt")
@@ -232,16 +258,92 @@ class SessionStore:
             raise ValueError("invalid conversation usage records")
         if not isinstance(compact_state, dict):
             raise ValueError("invalid conversation compact state")
+
+        if data.get("version") == SESSION_VERSION:
+            messages = self._read_messages(conversation_id)
+            persisted = len(messages)
+        else:
+            messages = data.get("messages")
+            if not isinstance(messages, list) or not all(
+                self._valid_message(item) for item in messages
+            ):
+                raise ValueError("invalid conversation messages")
+            messages = deepcopy(messages)
+            persisted = 0
+
+        message_count = sum(1 for message in messages if message.get("role") == "user")
         return Conversation(
             conversation_id,
             title,
             created_at,
             updated_at,
-            deepcopy(messages),
+            messages,
             title_source,
             deepcopy(usage_records),
             deepcopy(compact_state),
+            message_count,
+            persisted,
         )
+
+    def _read_messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        path = self._messages_path(conversation_id)
+        messages: list[dict[str, Any]] = []
+        if not path.is_file():
+            return messages
+        with open(path, encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # tolerate a trailing partial line after a crash
+                if self._valid_message(message):
+                    messages.append(message)
+        return messages
+
+    @staticmethod
+    def _read_summary(path: Path) -> dict[str, Any]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("version") not in (1, SESSION_VERSION):
+            raise ValueError("unsupported session file")
+        conversation_id = data.get("id")
+        if not isinstance(conversation_id, str) or not _ID_PATTERN.fullmatch(conversation_id):
+            raise ValueError("invalid conversation id")
+        if path.name != f"{conversation_id}.json":
+            raise ValueError("conversation id does not match filename")
+        title = data.get("title")
+        created_at = data.get("createdAt")
+        updated_at = data.get("updatedAt")
+        title_source = data.get("titleSource", "auto")
+        if not all(isinstance(value, str) and value for value in (title, created_at, updated_at)):
+            raise ValueError("invalid conversation metadata")
+        if title_source not in {"auto", "custom"}:
+            raise ValueError("invalid conversation title source")
+        if data.get("version") == SESSION_VERSION:
+            message_count = data.get("messageCount", 0)
+        else:
+            legacy_messages = data.get("messages", [])
+            message_count = (
+                sum(
+                    1
+                    for message in legacy_messages
+                    if isinstance(message, dict) and message.get("role") == "user"
+                )
+                if isinstance(legacy_messages, list)
+                else 0
+            )
+        if not isinstance(message_count, int):
+            raise ValueError("invalid message count")
+        return {
+            "id": conversation_id,
+            "title": title,
+            "createdAt": created_at,
+            "updatedAt": updated_at,
+            "messageCount": message_count,
+            "titleSource": title_source,
+        }
 
     @staticmethod
     def _valid_message(message: Any) -> bool:
