@@ -104,23 +104,6 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				client.answerQuestion(state.pendingQuestion.toolCallId);
 				return;
 			}
-		if (key.upArrow) {
-			const history = historyRef.current;
-			if (history.length === 0) return;
-			const next = stepHistory(history, historyIndexRef.current, draftRef.current, input, 'up');
-			historyIndexRef.current = next.index;
-			draftRef.current = next.draft;
-			setInput(next.input);
-			return;
-		}
-		if (key.downArrow) {
-			if (historyIndexRef.current === -1) return;
-			const next = stepHistory(historyRef.current, historyIndexRef.current, draftRef.current, input, 'down');
-			historyIndexRef.current = next.index;
-			draftRef.current = next.draft;
-			setInput(next.input);
-			return;
-		}
 
 		if (key.return) {
 				if (key.meta || key.ctrl) {
@@ -217,6 +200,24 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				}
 				return;
 			}
+		}
+
+		if (key.upArrow) {
+			const history = historyRef.current;
+			if (history.length === 0) return;
+			const next = stepHistory(history, historyIndexRef.current, draftRef.current, input, 'up');
+			historyIndexRef.current = next.index;
+			draftRef.current = next.draft;
+			setInput(next.input);
+			return;
+		}
+		if (key.downArrow) {
+			if (historyIndexRef.current === -1) return;
+			const next = stepHistory(historyRef.current, historyIndexRef.current, draftRef.current, input, 'down');
+			historyIndexRef.current = next.index;
+			draftRef.current = next.draft;
+			setInput(next.input);
+			return;
 		}
 
 		if (key.return) {
