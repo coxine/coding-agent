@@ -12,6 +12,14 @@ from .patch import apply_patch, patch_contains_delete
 from .shell import OutputCallback, command_risk, run_command
 
 
+# Read-only tools have no side effects and may run concurrently within one reply.
+READ_ONLY_TOOLS = frozenset(
+    {"list_directory", "read_file", "search_text", "git_status", "git_diff"}
+)
+# Read-only tools whose handlers are synchronous and must be offloaded to a thread.
+SYNC_READ_TOOLS = frozenset({"list_directory", "read_file", "search_text"})
+
+
 class ToolRegistry:
     def __init__(self, workspace_root: Path, *, command_timeout_ms: int = 30_000) -> None:
         self.paths = WorkspacePaths(workspace_root)
@@ -202,17 +210,7 @@ class ToolRegistry:
         try:
             values = require_object(arguments)
             self._validate_keys(name, values)
-            if name == "list_directory":
-                result = list_directory(self.paths, values)
-            elif name == "read_file":
-                result = read_file(self.paths, values)
-            elif name == "search_text":
-                result = search_text(self.paths, values)
-            elif name == "write_file":
-                result = write_file(self.paths, values)
-            elif name == "apply_patch":
-                result = apply_patch(self.paths, values)
-            elif name == "run_command":
+            if name == "run_command":
                 result = await run_command(
                     self.paths,
                     values,
@@ -223,36 +221,64 @@ class ToolRegistry:
                 result = await git_status(self.paths, values)
             elif name == "git_diff":
                 result = await git_diff(self.paths, values)
-            elif name == "move_path":
-                result = move_path(self.paths, values)
-            elif name == "delete_path":
-                result = delete_path(self.paths, values)
             else:
-                raise ToolFailure("unknown_tool", f"unknown tool: {name}")
-        except ToolFailure as exc:
-            result = ToolResult(
+                result = self._dispatch_sync(name, values)
+        except Exception as exc:
+            result = self._error_result(exc)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return result, duration_ms
+
+    def execute_sync(self, name: str, arguments: Any) -> tuple[ToolResult, int]:
+        started = time.monotonic()
+        try:
+            values = require_object(arguments)
+            self._validate_keys(name, values)
+            result = self._dispatch_sync(name, values)
+        except Exception as exc:
+            result = self._error_result(exc)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return result, duration_ms
+
+    def _dispatch_sync(self, name: str, values: dict[str, Any]) -> ToolResult:
+        if name == "list_directory":
+            return list_directory(self.paths, values)
+        if name == "read_file":
+            return read_file(self.paths, values)
+        if name == "search_text":
+            return search_text(self.paths, values)
+        if name == "write_file":
+            return write_file(self.paths, values)
+        if name == "apply_patch":
+            return apply_patch(self.paths, values)
+        if name == "move_path":
+            return move_path(self.paths, values)
+        if name == "delete_path":
+            return delete_path(self.paths, values)
+        raise ToolFailure("unknown_tool", f"unknown tool: {name}")
+
+    @staticmethod
+    def _error_result(exc: Exception) -> ToolResult:
+        if isinstance(exc, ToolFailure):
+            return ToolResult(
                 ok=False,
                 summary=exc.message,
                 error_code=exc.code,
                 error_message=exc.message,
                 retryable=exc.retryable,
             )
-        except PermissionError as exc:
-            result = ToolResult(
+        if isinstance(exc, PermissionError):
+            return ToolResult(
                 ok=False,
                 summary="operating system denied access",
                 error_code="permission_denied",
                 error_message=str(exc),
             )
-        except Exception as exc:  # Boundary: handlers never crash the agent loop.
-            result = ToolResult(
-                ok=False,
-                summary="unexpected tool error",
-                error_code="internal_error",
-                error_message=f"{type(exc).__name__}: {exc}",
-            )
-        duration_ms = int((time.monotonic() - started) * 1000)
-        return result, duration_ms
+        return ToolResult(
+            ok=False,
+            summary="unexpected tool error",
+            error_code="internal_error",
+            error_message=f"{type(exc).__name__}: {exc}",
+        )
 
     @staticmethod
     def _validate_keys(name: str, arguments: dict[str, Any]) -> None:
@@ -297,4 +323,4 @@ def _function(name: str, description: str, parameters: dict[str, Any]) -> dict[s
     }
 
 
-__all__ = ["ToolRegistry", "ToolResult"]
+__all__ = ["ToolRegistry", "ToolResult", "READ_ONLY_TOOLS", "SYNC_READ_TOOLS"]

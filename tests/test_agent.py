@@ -340,3 +340,129 @@ async def test_cancelling_user_question_closes_tool_call_in_history(tmp_path) ->
     assert json.loads(tool_message["content"])["error"]["code"] == "cancelled"
     assert any(event["type"] == "tool_finished" for event in events(output))
     assert events(output)[-1]["type"] == "turn_cancelled"
+
+
+@pytest.mark.asyncio
+async def test_agent_executes_read_only_tools_in_parallel(tmp_path) -> None:
+    (tmp_path / "a.txt").write_text("alpha\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("beta\n", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("gamma\n", encoding="utf-8")
+    output = io.StringIO()
+    model = FakeModel(
+        [
+            AssistantReply(
+                content="",
+                tool_calls=[
+                    ToolCall(id="call_a", name="read_file", arguments='{"path":"a.txt"}'),
+                    ToolCall(id="call_b", name="read_file", arguments='{"path":"b.txt"}'),
+                    ToolCall(id="call_c", name="read_file", arguments='{"path":"c.txt"}'),
+                ],
+            ),
+            AssistantReply(content="Read all three.", tool_calls=[]),
+        ]
+    )
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+    )
+    await agent.run_turn("turn_test", "Read a, b, and c")
+
+    emitted = events(output)
+    assert sum(event["type"] == "tool_requested" for event in emitted) == 3
+    assert sum(event["type"] == "tool_started" for event in emitted) == 3
+    assert sum(event["type"] == "tool_finished" for event in emitted) == 3
+    assert emitted[-1]["type"] == "turn_finished"
+    assert emitted[-1]["payload"]["toolCalls"] == 3
+
+    tool_messages = [message for message in model.requests[1] if message["role"] == "tool"]
+    assert len(tool_messages) == 3
+    paths = [json.loads(message["content"])["data"]["path"] for message in tool_messages]
+    assert paths == ["a.txt", "b.txt", "c.txt"]
+
+
+@pytest.mark.asyncio
+async def test_agent_read_after_write_sees_write_result(tmp_path) -> None:
+    (tmp_path / "a.txt").write_text("old\n", encoding="utf-8")
+    output = io.StringIO()
+    model = FakeModel(
+        [
+            AssistantReply(
+                content="",
+                tool_calls=[
+                    ToolCall(id="call_r1", name="read_file", arguments='{"path":"a.txt"}'),
+                    ToolCall(
+                        id="call_w",
+                        name="write_file",
+                        arguments='{"path":"a.txt","content":"new\\n"}',
+                    ),
+                    ToolCall(id="call_r2", name="read_file", arguments='{"path":"a.txt"}'),
+                ],
+            ),
+            AssistantReply(content="Updated.", tool_calls=[]),
+        ]
+    )
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return True
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+    )
+    await agent.run_turn("turn_test", "Update a.txt")
+
+    tool_messages = [message for message in model.requests[1] if message["role"] == "tool"]
+    first = json.loads(tool_messages[0]["content"])
+    third = json.loads(tool_messages[2]["content"])
+    assert "old" in first["data"]["content"]
+    assert "new" in third["data"]["content"]
+
+
+@pytest.mark.asyncio
+async def test_agent_detects_repeated_read_only_calls(tmp_path) -> None:
+    (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+    output = io.StringIO()
+    model = FakeModel(
+        [
+            AssistantReply(
+                content="",
+                tool_calls=[
+                    ToolCall(id="call_1", name="read_file", arguments='{"path":"a.txt"}'),
+                    ToolCall(id="call_2", name="read_file", arguments='{"path":"a.txt"}'),
+                    ToolCall(id="call_3", name="read_file", arguments='{"path":"a.txt"}'),
+                ],
+            )
+        ]
+    )
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+    )
+    await agent.run_turn("turn_test", "Read a.txt three times")
+
+    emitted = events(output)
+    failed = next(event for event in emitted if event["type"] == "turn_failed")
+    assert failed["payload"]["error"]["code"] == "repeated_tool_call"

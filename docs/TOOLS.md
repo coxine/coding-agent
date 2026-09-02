@@ -631,9 +631,9 @@ Core 必须同时生成：
 
 ## 22. 并发规则
 
-- 第一版按模型返回顺序串行执行多个 tool calls。
-- 串行执行便于展示、批准、取消和文件冲突处理。
-- 即使两个读取工具理论上可以并行，第一版也不做并发优化。
+- 只读工具（`list_directory`、`read_file`、`search_text`、`git_status`、`git_diff`）在一次模型回复的连续段内并行执行，用信号量（默认 8）限制并发；`git_status` 带 `--no-optional-locks`（不支持的 git 版本自动回退）。
+- 有副作用的工具（`write_file`、`apply_patch`、`run_command`、`move_path`、`delete_path`、`request_user_input`）作为屏障串行执行，保证「后一个工具看到前一个工具修改后的工作区」。
+- 并行只读工具的结果仍按模型返回顺序回填消息历史。
 - 同一时刻最多有一个本地子进程命令。
 
 ## 23. 审计信息

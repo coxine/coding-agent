@@ -316,7 +316,7 @@ JSON 解析失败时，为该 tool call 生成 `invalid_arguments` 结果并返�
 10. 发送 `tool_finished`。
 11. 将紧凑结果作为 tool message 加入模型历史。
 
-第一版串行执行同一响应中的多个 tool calls。若前一个工具修改了文件，后一个工具看到的是修改后的工作区。
+同一响应中的多个 tool calls 按「连续只读工具段并行、副作用工具作为屏障串行」执行。只读工具（`list_directory`/`read_file`/`search_text`/`git_status`/`git_diff`）在段内并发，结果仍按模型返回顺序写入历史；若前一个工具修改了文件，后一个工具看到的是修改后的工作区。
 
 如果用户在多个调用之间取消，尚未执行的调用也要生成 `cancelled` tool result，确保消息结构完整，然后 turn 进入 `cancelled`，但不再发起模型请求。
 

@@ -15,6 +15,29 @@ async def no_output(stream: str, text: str) -> None:
     del stream, text
 
 
+@pytest.mark.asyncio
+async def test_execute_sync_matches_async_for_read_tools(tmp_path) -> None:
+    (tmp_path / "hello.txt").write_text("hi\n", encoding="utf-8")
+    registry = ToolRegistry(tmp_path)
+
+    sync_result, _ = registry.execute_sync("read_file", {"path": "hello.txt"})
+    async_result, _ = await registry.execute(
+        "read_file", {"path": "hello.txt"}, on_output=no_output
+    )
+
+    assert sync_result.ok is True
+    assert sync_result.data == async_result.data
+    assert sync_result.summary == async_result.summary
+
+
+def test_execute_sync_maps_errors_like_async(tmp_path) -> None:
+    registry = ToolRegistry(tmp_path)
+    result, _ = registry.execute_sync("read_file", {"path": "missing.txt"})
+
+    assert result.ok is False
+    assert result.error_code == "file_not_found"
+
+
 def test_path_boundary_rejects_parent(tmp_path) -> None:
     paths = WorkspacePaths(tmp_path)
     with pytest.raises(ToolFailure, match="outside workspace"):

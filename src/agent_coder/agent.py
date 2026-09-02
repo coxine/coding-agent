@@ -11,7 +11,14 @@ from .config import AgentConfig
 from .memory import CompactState, MemoryManager
 from .model import AssistantReply, ModelClientProtocol, TokenUsage, ToolCall
 from .protocol import ProtocolEmitter, new_id
-from .tools import ToolRegistry, ToolResult
+from .tools import READ_ONLY_TOOLS, SYNC_READ_TOOLS, ToolRegistry, ToolResult
+
+
+MAX_PARALLEL_READS = 8
+
+
+async def _noop_output(stream: str, text: str) -> None:
+    del stream, text
 
 
 ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
@@ -83,6 +90,7 @@ class Agent:
             summarize=getattr(model, "summarize", None),
             state=CompactState.from_dict(compact_state or {}),
         )
+        self._read_semaphore = asyncio.Semaphore(MAX_PARALLEL_READS)
         self.messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -178,35 +186,10 @@ class Agent:
 
             if reply.tool_calls:
                 empty_responses = 0
-                for call_index, call in enumerate(reply.tool_calls):
-                    try:
-                        await self._pause_checkpoint()
-                        result = await self._execute_call(turn, call)
-                        await self._pause_checkpoint()
-                    except asyncio.CancelledError:
-                        cancelled_result = ToolResult(
-                            ok=False,
-                            summary="Tool call cancelled",
-                            error_code="cancelled",
-                            error_message="turn was cancelled",
-                        )
-                        await self._emit_tool_finished(turn, call, cancelled_result, 0)
-                        for pending_call in reply.tool_calls[call_index:]:
-                            self.messages.append(
-                                self._tool_message(
-                                    pending_call.id,
-                                    cancelled_result,
-                                )
-                            )
-                        await self._persist()
-                        raise
-                    self.messages.append(
-                        self._tool_message(call.id, result)
-                    )
-                    if turn.terminal:
-                        await self._persist()
-                        return
+                await self._execute_tool_calls(turn, reply.tool_calls)
                 await self._persist()
+                if turn.terminal:
+                    return
                 continue
 
             if reply.content.strip():
@@ -257,23 +240,160 @@ class Agent:
             "content": json.dumps(result.as_dict(), ensure_ascii=False),
         }
 
-    async def _execute_call(self, turn: TurnState, call: ToolCall) -> ToolResult:
+    async def _execute_tool_calls(self, turn: TurnState, calls: list[ToolCall]) -> None:
+        index = 0
+        while index < len(calls):
+            call = calls[index]
+            if call.name in READ_ONLY_TOOLS:
+                end = index
+                while end < len(calls) and calls[end].name in READ_ONLY_TOOLS:
+                    end += 1
+                batch = calls[index:end]
+                try:
+                    await self._pause_checkpoint()
+                    results = await self._execute_parallel(turn, batch)
+                    await self._pause_checkpoint()
+                except asyncio.CancelledError:
+                    cancelled = ToolResult(
+                        ok=False,
+                        summary="Tool call cancelled",
+                        error_code="cancelled",
+                        error_message="turn was cancelled",
+                    )
+                    for pending in calls[index:]:
+                        self.messages.append(self._tool_message(pending.id, cancelled))
+                    await self._persist()
+                    raise
+                for call_, result in zip(batch, results):
+                    self.messages.append(self._tool_message(call_.id, result))
+                    if turn.terminal:
+                        return
+                index = end
+                continue
+
+            try:
+                await self._pause_checkpoint()
+                result = await self._execute_call(turn, call)
+                await self._pause_checkpoint()
+            except asyncio.CancelledError:
+                cancelled = ToolResult(
+                    ok=False,
+                    summary="Tool call cancelled",
+                    error_code="cancelled",
+                    error_message="turn was cancelled",
+                )
+                await self._emit_tool_finished(turn, call, cancelled, 0)
+                for pending in calls[index:]:
+                    self.messages.append(self._tool_message(pending.id, cancelled))
+                await self._persist()
+                raise
+            self.messages.append(self._tool_message(call.id, result))
+            if turn.terminal:
+                return
+            index += 1
+
+    async def _execute_parallel(
+        self, turn: TurnState, calls: list[ToolCall]
+    ) -> list[ToolResult]:
+        results: dict[int, ToolResult] = {}
+
+        async def run_one(slot: int, call: ToolCall) -> None:
+            async with self._read_semaphore:
+                results[slot] = await self._execute_read_only(turn, call)
+
+        tasks = [asyncio.create_task(run_one(slot, call)) for slot, call in enumerate(calls)]
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            cancelled = ToolResult(
+                ok=False,
+                summary="Tool call cancelled",
+                error_code="cancelled",
+                error_message="turn was cancelled",
+            )
+            for slot, call in enumerate(calls):
+                if slot not in results:
+                    await self._emit_tool_finished(turn, call, cancelled, 0)
+            raise
+
+        ordered: list[ToolResult] = []
+        for slot, call in enumerate(calls):
+            result = results[slot]
+            self._record_fingerprint(turn, call, result)
+            ordered.append(result)
+        if self._is_repeated(turn):
+            await self._fail(
+                turn, "repeated_tool_call", "Agent repeated the same tool call without progress"
+            )
+        return ordered
+
+    async def _execute_read_only(self, turn: TurnState, call: ToolCall) -> ToolResult:
         turn.tool_calls += 1
+        arguments, error = self._parse_arguments(call)
+        if error is not None:
+            await self._emit_tool_requested(turn, call, {}, "high")
+            await self._emit_tool_finished(turn, call, error, 0)
+            return error
+        await self._emit_tool_requested(turn, call, arguments, "low")
+        await self._emit("agent_status", {"status": "running_tool", "step": turn.step}, turn)
+        await self._emit("tool_started", {"name": call.name}, turn, call.id)
+        if call.name in SYNC_READ_TOOLS:
+            result, duration_ms = await asyncio.to_thread(
+                self.tools.execute_sync, call.name, arguments
+            )
+        else:
+            result, duration_ms = await self.tools.execute(
+                call.name, arguments, on_output=_noop_output
+            )
+        await self._emit_tool_finished(turn, call, result, duration_ms)
+        return result
+
+    @staticmethod
+    def _parse_arguments(call: ToolCall) -> tuple[dict[str, Any], ToolResult | None]:
         try:
             arguments = json.loads(call.arguments)
             if not isinstance(arguments, dict):
                 raise ValueError("arguments must be an object")
         except (json.JSONDecodeError, ValueError) as exc:
-            result = ToolResult(
+            return {}, ToolResult(
                 ok=False,
                 summary="Tool arguments are not valid JSON",
                 error_code="invalid_arguments",
                 error_message=str(exc),
                 retryable=True,
             )
+        return arguments, None
+
+    def _record_fingerprint(self, turn: TurnState, call: ToolCall, result: ToolResult) -> None:
+        turn.changed_files.update(result.changed_files)
+        try:
+            arguments = json.loads(call.arguments)
+            if not isinstance(arguments, dict):
+                arguments = {}
+        except (json.JSONDecodeError, ValueError):
+            arguments = {}
+        fingerprint = (
+            call.name + ":" + json.dumps(arguments, sort_keys=True, ensure_ascii=False),
+            len(turn.changed_files),
+        )
+        turn.recent_fingerprints.append(fingerprint)
+        turn.recent_fingerprints = turn.recent_fingerprints[-3:]
+
+    @staticmethod
+    def _is_repeated(turn: TurnState) -> bool:
+        return len(turn.recent_fingerprints) == 3 and len(set(turn.recent_fingerprints)) == 1
+
+    async def _execute_call(self, turn: TurnState, call: ToolCall) -> ToolResult:
+        turn.tool_calls += 1
+        arguments, error = self._parse_arguments(call)
+        if error is not None:
             await self._emit_tool_requested(turn, call, {}, "high")
-            await self._emit_tool_finished(turn, call, result, 0)
-            return result
+            await self._emit_tool_finished(turn, call, error, 0)
+            return error
 
         risk = self.tools.risk(call.name, arguments)
         await self._emit_tool_requested(turn, call, arguments, risk)
@@ -374,13 +494,7 @@ class Agent:
             )
 
         result, duration_ms = await self.tools.execute(call.name, arguments, on_output=on_output)
-        turn.changed_files.update(result.changed_files)
-        fingerprint = (
-            call.name + ":" + json.dumps(arguments, sort_keys=True, ensure_ascii=False),
-            len(turn.changed_files),
-        )
-        turn.recent_fingerprints.append(fingerprint)
-        turn.recent_fingerprints = turn.recent_fingerprints[-3:]
+        self._record_fingerprint(turn, call, result)
 
         if result.ok and result.data and result.data.get("diff"):
             diff = str(result.data["diff"])
@@ -398,7 +512,7 @@ class Agent:
             )
         await self._emit_tool_finished(turn, call, result, duration_ms)
 
-        if len(turn.recent_fingerprints) == 3 and len(set(turn.recent_fingerprints)) == 1:
+        if self._is_repeated(turn):
             await self._fail(
                 turn, "repeated_tool_call", "Agent repeated the same tool call without progress"
             )

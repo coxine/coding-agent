@@ -39,8 +39,21 @@ async def git_status(paths: WorkspacePaths, arguments: dict[str, Any]) -> ToolRe
         raise ToolFailure("invalid_arguments", "includeUntracked must be a boolean")
     untracked = "all" if include_untracked else "no"
     code, output, stderr = await _git(
-        paths.root, "status", "--porcelain=v1", "-z", f"--untracked-files={untracked}"
+        paths.root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--no-optional-locks",
+        f"--untracked-files={untracked}",
     )
+    if code != 0 and "optional-locks" in stderr:
+        code, output, stderr = await _git(
+            paths.root,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            f"--untracked-files={untracked}",
+        )
     if code != 0:
         raise _git_failure(code, stderr)
 
