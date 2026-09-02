@@ -3,7 +3,6 @@ import { Box, Text, useApp, useInput } from 'ink';
 import { randomUUID } from 'node:crypto';
 import { CoreClient } from './core-client.js';
 import { matchingCommands, parseSlashCommand, SlashCommand } from './commands.js';
-import { pushHistory, stepHistory } from './history.js';
 import { MarkdownText } from './markdown.js';
 import { CoreEvent } from './protocol.js';
 import { Approval, initialState, Question, reducer, SessionSummary, StatusReport, ToolView, TranscriptItem } from './state.js';
@@ -27,9 +26,6 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 	const [questionAnswer, setQuestionAnswer] = useState('');
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 	const clientRef = useRef<CoreClient | null>(null);
-	const historyRef = useRef<string[]>([]);
-	const historyIndexRef = useRef(-1);
-	const draftRef = useRef('');
 
 	useEffect(() => {
 		const client = new CoreClient({ repositoryRoot, workspaceRoot, model, baseUrl });
@@ -202,24 +198,6 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			}
 		}
 
-		if (key.upArrow) {
-			const history = historyRef.current;
-			if (history.length === 0) return;
-			const next = stepHistory(history, historyIndexRef.current, draftRef.current, input, 'up');
-			historyIndexRef.current = next.index;
-			draftRef.current = next.draft;
-			setInput(next.input);
-			return;
-		}
-		if (key.downArrow) {
-			if (historyIndexRef.current === -1) return;
-			const next = stepHistory(historyRef.current, historyIndexRef.current, draftRef.current, input, 'down');
-			historyIndexRef.current = next.index;
-			draftRef.current = next.draft;
-			setInput(next.input);
-			return;
-		}
-
 		if (key.return) {
 			if (key.meta || key.ctrl) {
 				setInput(value => `${value}\n`);
@@ -241,9 +219,6 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			try {
 				client.submit(text, turnId);
 				dispatch({ type: 'submitted', turnId, text });
-				historyRef.current = pushHistory(historyRef.current, text);
-				historyIndexRef.current = -1;
-				draftRef.current = '';
 				setInput('');
 			} catch (error) {
 				dispatch({ type: 'notice', message: String(error), level: 'error' });
@@ -597,7 +572,6 @@ function Footer({ active, paused, approval, question, sessions, status, reasonin
 						]
 						: [
 							{ key: 'enter', label: 'send' },
-							{ key: '↑/↓', label: 'history' },
 							{ key: '/session', label: 'history' },
 							{ key: '/status', label: 'info' },
 							{ key: 'ctrl+enter', label: 'newline' },
