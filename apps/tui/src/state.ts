@@ -54,7 +54,29 @@ export type StatusReport = {
 		requestMessageCount: number;
 		truncated: boolean;
 	};
+	tokenUsage: {
+		requestCount: number;
+		measuredRequests: number;
+		unavailableRequests: number;
+		latest?: TokenUsageRecord;
+		totals: TokenTotals;
+	};
 	metadata: Record<string, string | number | boolean>;
+};
+
+type TokenUsageRecord = TokenTotals & {
+	available: boolean;
+	recordedAt: string;
+	turnId: string;
+	step: number;
+};
+
+type TokenTotals = {
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+	cachedTokens: number;
+	reasoningTokens: number;
 };
 
 export type AppState = {
@@ -360,6 +382,11 @@ function sessionSummaries(value: unknown): SessionSummary[] {
 
 function statusReport(payload: Record<string, unknown>): StatusReport {
 	const context = asRecord(payload.context);
+	const tokenUsage = asRecord(payload.tokenUsage);
+	const latestValue = tokenUsage.latest;
+	const latest = latestValue && typeof latestValue === 'object'
+		? tokenUsageRecord(asRecord(latestValue))
+		: undefined;
 	const metadata = asRecord(payload.metadata);
 	return {
 		model: String(payload.model ?? ''),
@@ -374,9 +401,36 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 			requestMessageCount: Number(context.requestMessageCount ?? 0),
 			truncated: Boolean(context.truncated),
 		},
+		tokenUsage: {
+			requestCount: Number(tokenUsage.requestCount ?? 0),
+			measuredRequests: Number(tokenUsage.measuredRequests ?? 0),
+			unavailableRequests: Number(tokenUsage.unavailableRequests ?? 0),
+			latest,
+			totals: tokenTotals(asRecord(tokenUsage.totals)),
+		},
 		metadata: Object.fromEntries(
 			Object.entries(metadata).filter((entry): entry is [string, string | number | boolean] =>
 				['string', 'number', 'boolean'].includes(typeof entry[1])),
 		),
+	};
+}
+
+function tokenUsageRecord(value: Record<string, unknown>): TokenUsageRecord {
+	return {
+		...tokenTotals(value),
+		available: Boolean(value.available),
+		recordedAt: String(value.recordedAt ?? ''),
+		turnId: String(value.turnId ?? ''),
+		step: Number(value.step ?? 0),
+	};
+}
+
+function tokenTotals(value: Record<string, unknown>): TokenTotals {
+	return {
+		promptTokens: Number(value.promptTokens ?? 0),
+		completionTokens: Number(value.completionTokens ?? 0),
+		totalTokens: Number(value.totalTokens ?? 0),
+		cachedTokens: Number(value.cachedTokens ?? 0),
+		reasoningTokens: Number(value.reasoningTokens ?? 0),
 	};
 }

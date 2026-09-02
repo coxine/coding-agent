@@ -10,7 +10,7 @@ import pytest
 
 from agent_coder.agent import Agent
 from agent_coder.config import AgentConfig
-from agent_coder.model import AssistantReply, ToolCall
+from agent_coder.model import AssistantReply, TokenUsage, ToolCall
 from agent_coder.protocol import ProtocolEmitter
 from agent_coder.tools import ToolRegistry
 
@@ -65,6 +65,36 @@ async def test_agent_finishes_without_tools(tmp_path) -> None:
     names = [event["type"] for event in events(output)]
     assert names[-1] == "turn_finished"
     assert names.count("turn_finished") == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_records_usage_after_each_model_request(tmp_path) -> None:
+    output = io.StringIO()
+    usage = TokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110)
+    model = FakeModel([AssistantReply(content="Done.", tool_calls=[], usage=usage)])
+    recorded: list[tuple[str, int, TokenUsage | None]] = []
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    async def persist_usage(
+        turn_id: str, step: int, returned_usage: TokenUsage | None
+    ) -> None:
+        recorded.append((turn_id, step, returned_usage))
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+        persist_usage=persist_usage,
+    )
+    await agent.run_turn("turn_test", "Say done")
+
+    assert recorded == [("turn_test", 1, usage)]
 
 
 @pytest.mark.asyncio

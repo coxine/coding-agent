@@ -336,7 +336,7 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 ### 7.1.4 `status_report`
 
-返回模型、工作区、Core Session ID、Conversation ID、上下文统计及非敏感 metadata。`totalChars` 是 system message 与完整历史的 JSON 字符数；`requestChars` 是上下文裁剪后下一次模型请求使用的字符数。
+返回模型、工作区、Core Session ID、Conversation ID、上下文统计、API token usage 及非敏感 metadata。`tokenUsage` 完全来自每次 Chat Completions 响应的 usage，不进行请求前本地 token 估算；供应商未返回 usage 的请求计入 `unavailableRequests`。
 
 ```json
 {
@@ -355,6 +355,29 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
       "requestMessageCount": 37,
       "truncated": false
     },
+    "tokenUsage": {
+      "requestCount": 3,
+      "measuredRequests": 2,
+      "unavailableRequests": 1,
+      "latest": {
+        "recordedAt": "2026-08-27T08:04:00.000000Z",
+        "turnId": "turn_1",
+        "step": 2,
+        "available": true,
+        "promptTokens": 42800,
+        "completionTokens": 923,
+        "totalTokens": 43723,
+        "cachedTokens": 8192,
+        "reasoningTokens": 512
+      },
+      "totals": {
+        "promptTokens": 70120,
+        "completionTokens": 1540,
+        "totalTokens": 71660,
+        "cachedTokens": 8192,
+        "reasoningTokens": 512
+      }
+    },
     "metadata": {
       "conversationTitle": "修复解析器",
       "userTurns": 4,
@@ -368,6 +391,8 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
   }
 }
 ```
+
+每个正常完成的模型请求都会形成一条持久化 usage 记录。兼容服务明确拒绝 `stream_options.include_usage` 时，客户端不带该参数重试，并在请求完成后保存 `available: false`；任何情况下都不伪造 token 数字。流在完成前异常中断时，本次请求没有完整返回值，因此不写入 token 记录。
 
 ### 7.2 `turn_started`
 

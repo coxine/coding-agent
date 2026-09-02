@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +30,7 @@ class Conversation:
     updated_at: str
     messages: list[dict[str, Any]]
     title_source: str = "auto"
+    usage_records: list[dict[str, Any]] = field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -105,6 +106,48 @@ class SessionStore:
         self.save(conversation)
         return conversation
 
+    def record_usage(
+        self,
+        conversation: Conversation,
+        *,
+        turn_id: str,
+        step: int,
+        usage: dict[str, int] | None,
+    ) -> None:
+        record: dict[str, Any] = {
+            "recordedAt": _now(),
+            "turnId": turn_id,
+            "step": step,
+            "available": usage is not None,
+        }
+        if usage is not None:
+            record.update(usage)
+        conversation.usage_records.append(record)
+        conversation.updated_at = record["recordedAt"]
+        self.save(conversation)
+
+    @staticmethod
+    def usage_summary(conversation: Conversation) -> dict[str, Any]:
+        available = [record for record in conversation.usage_records if record["available"]]
+        return {
+            "requestCount": len(conversation.usage_records),
+            "measuredRequests": len(available),
+            "unavailableRequests": len(conversation.usage_records) - len(available),
+            "latest": deepcopy(conversation.usage_records[-1])
+            if conversation.usage_records
+            else None,
+            "totals": {
+                key: sum(int(record.get(key, 0)) for record in available)
+                for key in (
+                    "promptTokens",
+                    "completionTokens",
+                    "totalTokens",
+                    "cachedTokens",
+                    "reasoningTokens",
+                )
+            },
+        }
+
     def save(self, conversation: Conversation) -> None:
         if not _ID_PATTERN.fullmatch(conversation.id):
             raise ValueError("invalid conversation id")
@@ -116,6 +159,7 @@ class SessionStore:
             "updatedAt": conversation.updated_at,
             "titleSource": conversation.title_source,
             "messages": conversation.messages,
+            "usage": conversation.usage_records,
         }
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{conversation.id}.", suffix=".tmp", dir=self.directory
@@ -160,10 +204,15 @@ class SessionStore:
         created_at = data.get("createdAt")
         updated_at = data.get("updatedAt")
         title_source = data.get("titleSource", "auto")
+        usage_records = data.get("usage", [])
         if not all(isinstance(value, str) and value for value in (title, created_at, updated_at)):
             raise ValueError("invalid conversation metadata")
         if title_source not in {"auto", "custom"}:
             raise ValueError("invalid conversation title source")
+        if not isinstance(usage_records, list) or not all(
+            SessionStore._valid_usage_record(record) for record in usage_records
+        ):
+            raise ValueError("invalid conversation usage records")
         return Conversation(
             conversation_id,
             title,
@@ -171,6 +220,7 @@ class SessionStore:
             updated_at,
             deepcopy(messages),
             title_source,
+            deepcopy(usage_records),
         )
 
     @staticmethod
@@ -179,6 +229,38 @@ class SessionStore:
             isinstance(message, dict)
             and message.get("role") in _ALLOWED_ROLES
             and (message.get("content") is None or isinstance(message.get("content"), str))
+        )
+
+    @staticmethod
+    def _valid_usage_record(record: Any) -> bool:
+        if not isinstance(record, dict):
+            return False
+        if not isinstance(record.get("recordedAt"), str):
+            return False
+        if not isinstance(record.get("turnId"), str):
+            return False
+        if isinstance(record.get("step"), bool) or not isinstance(record.get("step"), int):
+            return False
+        if not isinstance(record.get("available"), bool):
+            return False
+        token_keys = {
+            "promptTokens",
+            "completionTokens",
+            "totalTokens",
+            "cachedTokens",
+            "reasoningTokens",
+        }
+        if record["available"] and not {
+            "promptTokens",
+            "completionTokens",
+            "totalTokens",
+        }.issubset(record):
+            return False
+        return all(
+            not isinstance(record.get(key), bool)
+            and isinstance(record.get(key), int)
+            and record[key] >= 0
+            for key in token_keys.intersection(record)
         )
 
     @staticmethod

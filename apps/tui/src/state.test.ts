@@ -54,10 +54,19 @@ test('status report stores context usage and metadata', () => {
 			coreSessionId: 'sess_1',
 			conversationId: 'conv_1',
 			context: {totalChars: 1200, requestChars: 900, maxChars: 2000, messageCount: 8, requestMessageCount: 6, truncated: true},
+			tokenUsage: {
+				requestCount: 2,
+				measuredRequests: 2,
+				unavailableRequests: 0,
+				latest: {available: true, recordedAt: 'now', turnId: 'turn_1', step: 2, promptTokens: 120, completionTokens: 8, totalTokens: 128},
+				totals: {promptTokens: 200, completionTokens: 20, totalTokens: 220},
+			},
 			metadata: {maxSteps: 30, conversationTitle: 'Parser'},
 		}),
 	});
 	assert.equal(state.statusReport?.context.requestChars, 900);
+	assert.equal(state.statusReport?.tokenUsage.latest?.promptTokens, 120);
+	assert.equal(state.statusReport?.tokenUsage.totals.completionTokens, 20);
 	assert.equal(state.statusReport?.metadata.maxSteps, 30);
 
 	state = reducer(state, {type: 'close_status'});

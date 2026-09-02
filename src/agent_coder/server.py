@@ -155,6 +155,16 @@ class CoreServer:
                         session_id=self.session_id,
                     )
 
+        async def persist_usage(turn_id: str, step: int, usage: Any) -> None:
+            if self.session_store is not None and self.conversation is conversation:
+                await asyncio.to_thread(
+                    self.session_store.record_usage,
+                    conversation,
+                    turn_id=turn_id,
+                    step=step,
+                    usage=usage.as_dict() if usage is not None else None,
+                )
+
         return Agent(
             config=self.config,
             session_id=self.session_id,
@@ -165,6 +175,7 @@ class CoreServer:
             request_user_input=self._request_user_input,
             history_messages=conversation.messages,
             persist_messages=persist,
+            persist_usage=persist_usage,
         )
 
     async def _list_sessions(self, message: dict[str, Any]) -> None:
@@ -193,6 +204,9 @@ class CoreServer:
                 "coreSessionId": self.session_id,
                 "conversationId": self.conversation.id,
                 "context": self.agent.context_stats(),
+                "tokenUsage": self.session_store.usage_summary(self.conversation)
+                if self.session_store is not None
+                else None,
                 "metadata": {
                     "conversationTitle": self.conversation.title,
                     "titleSource": self.conversation.title_source,

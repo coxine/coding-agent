@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import AgentConfig
 from .context import ContextManager
-from .model import AssistantReply, ModelClientProtocol, ToolCall
+from .model import AssistantReply, ModelClientProtocol, TokenUsage, ToolCall
 from .protocol import ProtocolEmitter, new_id
 from .tools import ToolRegistry, ToolResult
 
@@ -17,6 +17,7 @@ from .tools import ToolRegistry, ToolResult
 ApprovalCallback = Callable[[str, dict[str, Any]], Awaitable[bool]]
 UserInputCallback = Callable[[str, str], Awaitable[str | None]]
 PersistCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
+UsageCallback = Callable[[str, int, TokenUsage | None], Awaitable[None]]
 
 
 SYSTEM_PROMPT = """You are a local coding agent operating inside one workspace.
@@ -62,6 +63,7 @@ class Agent:
         request_user_input: UserInputCallback | None = None,
         history_messages: list[dict[str, Any]] | None = None,
         persist_messages: PersistCallback | None = None,
+        persist_usage: UsageCallback | None = None,
     ) -> None:
         self.config = config
         self.session_id = session_id
@@ -71,6 +73,7 @@ class Agent:
         self.request_approval = request_approval
         self.request_user_input = request_user_input
         self.persist_messages = persist_messages
+        self.persist_usage = persist_usage
         self.context = ContextManager(config.max_context_chars)
         self.messages: list[dict[str, Any]] = [
             {
@@ -138,6 +141,8 @@ class Agent:
             reply = await self.model.complete(
                 self.context.build_request(self.messages), self.tools.schemas, on_delta
             )
+            if self.persist_usage is not None:
+                await self.persist_usage(turn.turn_id, turn.step, reply.usage)
             await self._emit(
                 "assistant_message_finished",
                 {"assistantMessageId": assistant_message_id, "text": reply.content},

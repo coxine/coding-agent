@@ -17,6 +17,8 @@
 
 Conversation 持久化在工作区 `.coding-agent/sessions/`。启动时加载更新时间最新的一项；恢复时使用当前配置重新生成 system message，再追加保存的 user、assistant 与 tool 消息。第一条 prompt 生成自动展示名称；用户重命名后名称来源变为 `custom`，后续持久化不再覆盖。持久化点包括用户消息加入后、一个 assistant tool-call 批次取得全部 tool result 后，以及最终 assistant 消息完成后，避免写入缺少对应 tool result 的中间结构。
 
+每次模型流式请求启用 `stream_options.include_usage`。最终 usage chunk 中的输入、输出、总量、缓存和推理 token 按 turn ID 与 step 逐次写入当前 Conversation；没有 usage 时记录 unavailable，不使用本地 tokenizer 补值。
+
 ### 2.2 Turn
 
 用户提交一条任务后创建一个 turn，直到进入以下唯一终态之一：

@@ -328,10 +328,8 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 }
 
 function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
-	const contextPercent = report.context.maxChars > 0
-		? Math.min(100, Math.round((report.context.requestChars / report.context.maxChars) * 100))
-		: 0;
-	const progress = progressBar(contextPercent);
+	const latest = report.tokenUsage.latest;
+	const totals = report.tokenUsage.totals;
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">coding-agent status</Text>
@@ -340,8 +338,26 @@ function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
 				<StatusRow label="Directory" value={shortPath(report.workspaceRoot)} />
 				<StatusRow label="Conversation" value={report.conversationId} />
 				<StatusRow label="Core session" value={report.coreSessionId} />
-				<StatusRow label="Stored context" value={`${formatNumber(report.context.totalChars)} chars • ${report.context.messageCount} messages`} />
-				<StatusRow label="Next request" value={`${progress} ${contextPercent}% • ${formatNumber(report.context.requestChars)} / ${formatNumber(report.context.maxChars)} chars${report.context.truncated ? ' • trimmed' : ''}`} />
+				<StatusRow label="Stored history" value={`${report.context.messageCount} messages`} />
+			</Box>
+			<Box marginTop={1} flexDirection="column">
+				<Text bold>API token usage</Text>
+				{latest?.available ? (
+					<>
+						<StatusRow label="Last context" value={`${formatNumber(latest.promptTokens)} tokens`} />
+						<StatusRow label="Last response" value={`${formatNumber(latest.completionTokens)} tokens`} />
+						<StatusRow label="Last total" value={`${formatNumber(latest.totalTokens)} tokens • turn step ${latest.step}`} />
+					</>
+				) : (
+					<StatusRow label="Last request" value={latest ? 'Provider did not return usage' : 'No model request yet'} />
+				)}
+				<StatusRow label="Session input" value={`${formatNumber(totals.promptTokens)} tokens`} />
+				<StatusRow label="Session output" value={`${formatNumber(totals.completionTokens)} tokens`} />
+				<StatusRow label="Session total" value={`${formatNumber(totals.totalTokens)} tokens`} />
+				{totals.cachedTokens > 0 && <StatusRow label="Cached input" value={`${formatNumber(totals.cachedTokens)} tokens`} />}
+				{totals.reasoningTokens > 0 && <StatusRow label="Reasoning" value={`${formatNumber(totals.reasoningTokens)} tokens`} />}
+				<StatusRow label="API requests" value={`${report.tokenUsage.measuredRequests} measured / ${report.tokenUsage.requestCount} total`} />
+				{report.tokenUsage.unavailableRequests > 0 && <StatusRow label="Unavailable" value={`${report.tokenUsage.unavailableRequests} request(s) without usage`} />}
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Metadata</Text>
@@ -482,11 +498,6 @@ function sanitize(text: string): string {
 function shortPath(path: string): string {
 	const home = process.env.HOME;
 	return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
-}
-
-function progressBar(percent: number): string {
-	const filled = Math.round(percent / 5);
-	return `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}]`;
 }
 
 function formatNumber(value: number): string {

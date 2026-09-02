@@ -74,6 +74,14 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
         updated_at="2026-09-02T01:00:00Z",
         messages=[{"role": "user", "content": "hello"}],
     )
+    server.session_store = SessionStore(tmp_path)
+    server.session_store.save(server.conversation)
+    server.session_store.record_usage(
+        server.conversation,
+        turn_id="turn_1",
+        step=1,
+        usage={"promptTokens": 100, "completionTokens": 10, "totalTokens": 110},
+    )
     server.agent = SimpleNamespace(
         context_stats=lambda: {
             "totalChars": 1000,
@@ -92,6 +100,7 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
     assert event["type"] == "status_report"
     assert event["payload"]["model"] == "test-model"
     assert event["payload"]["context"]["requestChars"] == 800
+    assert event["payload"]["tokenUsage"]["latest"]["promptTokens"] == 100
     assert event["payload"]["metadata"]["tools"] == 2
     assert event["payload"]["metadata"]["userTurns"] == 1
 

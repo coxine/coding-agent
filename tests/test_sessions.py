@@ -60,6 +60,44 @@ def test_legacy_session_without_title_source_loads_as_auto(tmp_path) -> None:
     assert store.load(conversation.id).title_source == "auto"
 
 
+def test_session_records_exact_usage_per_model_request(tmp_path) -> None:
+    store = SessionStore(tmp_path)
+    conversation = store.create()
+    store.record_usage(
+        conversation,
+        turn_id="turn_1",
+        step=1,
+        usage={"promptTokens": 100, "completionTokens": 20, "totalTokens": 120},
+    )
+    store.record_usage(conversation, turn_id="turn_1", step=2, usage=None)
+    store.record_usage(
+        conversation,
+        turn_id="turn_2",
+        step=1,
+        usage={
+            "promptTokens": 150,
+            "completionTokens": 30,
+            "totalTokens": 180,
+            "cachedTokens": 50,
+            "reasoningTokens": 10,
+        },
+    )
+
+    restored = store.load(conversation.id)
+    summary = store.usage_summary(restored)
+    assert summary["requestCount"] == 3
+    assert summary["measuredRequests"] == 2
+    assert summary["unavailableRequests"] == 1
+    assert summary["latest"]["promptTokens"] == 150
+    assert summary["totals"] == {
+        "promptTokens": 250,
+        "completionTokens": 50,
+        "totalTokens": 300,
+        "cachedTokens": 50,
+        "reasoningTokens": 10,
+    }
+
+
 def test_session_files_are_private_and_atomic_temps_are_cleaned(tmp_path) -> None:
     store = SessionStore(tmp_path)
     conversation = store.create()
