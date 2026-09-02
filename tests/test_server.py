@@ -104,7 +104,9 @@ async def test_core_status_report_contains_context_and_metadata(tmp_path) -> Non
     assert event["payload"]["tokenUsage"]["latest"]["promptTokens"] == 100
     assert event["payload"]["tokenUsage"]["contextWindowTokens"] == 128000
     assert event["payload"]["metadata"]["tools"] == 2
-    assert event["payload"]["metadata"]["userTurns"] == 1
+    assert "userTurns" not in event["payload"]["metadata"]
+    assert "persistedMessages" not in event["payload"]["metadata"]
+    assert "titleSource" not in event["payload"]["metadata"]
 
 
 @pytest.mark.asyncio

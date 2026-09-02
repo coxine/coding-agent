@@ -329,38 +329,30 @@ function SessionPicker({sessions, activeId, choice}: {sessions: SessionSummary[]
 }
 
 function StatusPanel({report}: {report: StatusReport}): React.ReactNode {
-	const latest = report.tokenUsage.latest;
 	const totals = report.tokenUsage.totals;
 	const contextLimit = report.tokenUsage.contextWindowTokens;
 	return (
 		<Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
 			<Text bold color="cyan">coding-agent status</Text>
-			<Box marginTop={1} flexDirection="column">
+			<Box flexDirection="column">
 				<StatusRow label="Model" value={report.model} />
 				<StatusRow label="Directory" value={shortPath(report.workspaceRoot)} />
 				<StatusRow label="Conversation" value={report.conversationId} />
 				<StatusRow label="Core session" value={report.coreSessionId} />
-				<StatusRow label="Stored history" value={`${report.context.messageCount} messages`} />
 			</Box>
-			<Box marginTop={1} flexDirection="column">
+			<Box flexDirection="column">
 				<Text bold>API token usage</Text>
-				{latest?.available ? (
+				{totals.totalTokens > 0 ? (
 					<TokenUsageChart
-						title="Last request"
-						usage={latest}
+						title="Session distribution"
+						usage={totals}
 						contextWindowTokens={contextLimit}
-						detail={`turn step ${latest.step}`}
 					/>
 				) : (
-					<StatusRow label="Last request" value={latest ? 'Provider did not return usage' : 'No model request yet'} />
+					<Text dimColor>No measured token usage</Text>
 				)}
-				{totals.totalTokens > 0 && <TokenUsageChart title="Session distribution" usage={totals} />}
-				<Text dimColor>
-					{report.tokenUsage.measuredRequests}/{report.tokenUsage.requestCount} requests measured
-					{report.tokenUsage.unavailableRequests > 0 ? ` • ${report.tokenUsage.unavailableRequests} unavailable` : ''}
-				</Text>
 			</Box>
-			<Box marginTop={1} flexDirection="column">
+			<Box flexDirection="column">
 				<Text bold>Metadata</Text>
 				{Object.entries(report.metadata).map(([key, value]) => (
 					<StatusRow key={key} label={metadataLabel(key)} value={formatMetadata(key, value)} />

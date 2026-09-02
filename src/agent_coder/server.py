@@ -213,11 +213,8 @@ class CoreServer:
                 "tokenUsage": token_usage,
                 "metadata": {
                     "conversationTitle": self.conversation.title,
-                    "titleSource": self.conversation.title_source,
                     "createdAt": self.conversation.created_at,
                     "updatedAt": self.conversation.updated_at,
-                    "userTurns": self.conversation.summary()["messageCount"],
-                    "persistedMessages": len(self.conversation.messages),
                     "tools": len(self.agent.tools.schemas),
                     "maxSteps": self.config.max_steps,
                     "permissions": "Workspace (approval required for high-risk tools)",

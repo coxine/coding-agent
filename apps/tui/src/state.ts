@@ -412,6 +412,7 @@ function statusReport(payload: Record<string, unknown>): StatusReport {
 		},
 		metadata: Object.fromEntries(
 			Object.entries(metadata).filter((entry): entry is [string, string | number | boolean] =>
+				!['titleSource', 'userTurns', 'persistedMessages', 'commandTimeoutMs', 'protocolVersion'].includes(entry[0]) &&
 				['string', 'number', 'boolean'].includes(typeof entry[1])),
 		),
 	};

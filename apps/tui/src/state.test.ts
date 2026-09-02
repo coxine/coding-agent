@@ -62,7 +62,7 @@ test('status report stores context usage and metadata', () => {
 				latest: {available: true, recordedAt: 'now', turnId: 'turn_1', step: 2, promptTokens: 120, completionTokens: 8, totalTokens: 128},
 				totals: {promptTokens: 200, completionTokens: 20, totalTokens: 220},
 			},
-			metadata: {maxSteps: 30, conversationTitle: 'Parser'},
+			metadata: {maxSteps: 30, conversationTitle: 'Parser', titleSource: 'custom', persistedMessages: 8},
 		}),
 	});
 	assert.equal(state.statusReport?.context.requestChars, 900);
@@ -70,6 +70,8 @@ test('status report stores context usage and metadata', () => {
 	assert.equal(state.statusReport?.tokenUsage.contextWindowTokens, 128000);
 	assert.equal(state.statusReport?.tokenUsage.totals.completionTokens, 20);
 	assert.equal(state.statusReport?.metadata.maxSteps, 30);
+	assert.equal(state.statusReport?.metadata.titleSource, undefined);
+	assert.equal(state.statusReport?.metadata.persistedMessages, undefined);
 
 	state = reducer(state, {type: 'close_status'});
 	assert.equal(state.statusReport, undefined);
