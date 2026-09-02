@@ -232,6 +232,11 @@ class Agent:
     def context_stats(self) -> dict[str, Any]:
         return self.memory.stats(self.messages)
 
+    async def compact_now(self) -> dict[str, Any]:
+        info = await self.memory.force_compact(self.messages)
+        await self._persist()
+        return info
+
     @staticmethod
     def _tool_message(tool_call_id: str, result: ToolResult) -> dict[str, Any]:
         return {

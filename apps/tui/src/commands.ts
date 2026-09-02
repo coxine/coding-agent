@@ -7,6 +7,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 	{name: '/rename', description: 'Rename the current conversation: /rename <name>'},
 	{name: '/session', description: 'Browse, switch, or create workspace conversations'},
 	{name: '/status', description: 'Show model, workspace, context usage, and session metadata'},
+	{name: '/compact', description: 'Compact the conversation context manually'},
 ];
 
 export type SlashInvocation = {

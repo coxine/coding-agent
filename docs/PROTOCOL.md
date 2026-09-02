@@ -231,6 +231,10 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 
 请求当前 Conversation 的只读运行状态。payload 为空，Core 返回 `status_report`。该请求不修改历史，也不发送给模型。
 
+### 6.5.2 `compact_context`
+
+请求立即压缩当前 Conversation 的上下文。payload 为空，仅在 Agent 空闲时允许；Core 运行压缩 pipeline（丢弃低价值工具输出、去重、折叠轨迹、可选 schema 约束 LLM 总结），更新并持久化 `CompactState`，返回 `context_compacted`。存在活动 turn 时返回 `turn_already_running`。
+
 ### 6.6 `switch_session`
 
 ```json
@@ -451,6 +455,31 @@ Core 收到后应中断模型请求、正在等待的批准或本地子进程，
 ```
 
 每个正常完成的模型请求都会形成一条持久化 usage 记录。兼容服务明确拒绝 `stream_options.include_usage` 时，客户端不带该参数重试，并在请求完成后保存 `available: false`；任何情况下都不伪造 token 数字。流在完成前异常中断时，本次请求没有完整返回值，因此不写入 token 记录。
+
+### 7.1.5 `context_compacted`
+
+手动压缩完成后发送，payload 汇报压缩结果：
+
+```json
+{
+  "type": "context_compacted",
+  "sessionId": "sess_1",
+  "payload": {
+    "summarized": true,
+    "messageCountBefore": 48,
+    "messageCountAfter": 16,
+    "stateCounts": {
+      "goal": true,
+      "constraints": 2,
+      "confirmedFacts": 3,
+      "decisions": 1,
+      "rejectedApproaches": 1,
+      "modifiedFiles": 2,
+      "relevantFiles": 4
+    }
+  }
+}
+```
 
 ### 7.2 `turn_started`
 

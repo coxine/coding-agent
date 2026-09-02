@@ -3,7 +3,7 @@ import test from 'node:test';
 import {matchingCommands, parseSlashCommand} from './commands.js';
 
 test('slash opens the full command list', () => {
-	assert.deepEqual(matchingCommands('/').map(command => command.name), ['/rename', '/session', '/status']);
+	assert.deepEqual(matchingCommands('/').map(command => command.name), ['/rename', '/session', '/status', '/compact']);
 });
 
 test('command list filters by typed prefix', () => {

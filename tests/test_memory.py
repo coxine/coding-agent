@@ -193,3 +193,37 @@ async def test_build_request_without_summarizer_keeps_collapsed() -> None:
     # invariants: system first, no orphan leading tool message
     assert request[0]["role"] == "system"
     assert request[1]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_force_compact_runs_unconditionally() -> None:
+    manager = MemoryManager(max_chars=1_000_000, summarize=None)
+    messages = _trajectory(8)
+
+    info = await manager.force_compact(messages)
+
+    assert manager.compact_count == 1
+    assert info["summarized"] is False
+    assert info["messageCountBefore"] == len(messages)
+    assert info["messageCountAfter"] == len(messages)
+    assert "stateCounts" in info
+
+
+@pytest.mark.asyncio
+async def test_force_compact_with_summarizer_reports_counts() -> None:
+    calls: list[list[dict]] = []
+
+    async def summarize(messages: list[dict]) -> dict:
+        calls.append(messages)
+        return {"goal": "Fix the parser"}
+
+    manager = MemoryManager(max_chars=1_000_000, summarize=summarize)
+    messages = _trajectory(8)
+
+    info = await manager.force_compact(messages)
+
+    assert info["summarized"] is True
+    assert info["messageCountBefore"] == len(messages)
+    assert info["messageCountAfter"] < len(messages)
+    assert info["stateCounts"]["goal"] is True
+    assert len(calls) == 1

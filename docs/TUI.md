@@ -314,6 +314,7 @@ App
 | `/session` | 打开对话选择面板 | `composing` |
 | `/rename <名称>` | 修改当前对话展示名称 | `composing` |
 | `/status` | 打开当前对话状态面板 | `composing` |
+| `/compact` | 手动压缩当前对话上下文 | `composing` |
 | `/` | 唤起命令列表；继续输入可过滤 | `composing` |
 | `↑` / `↓` | 选择历史对话 | `session_picker` |
 | `Enter` | 切换到选中对话 | `session_picker` |

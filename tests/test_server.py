@@ -234,3 +234,48 @@ async def test_run_processes_lines_until_shutdown() -> None:
     assert events[0]["type"] == "error"
     assert events[0]["payload"]["code"] == "invalid_json"
     assert events[-1]["type"] == "shutdown_complete"
+
+
+@pytest.mark.asyncio
+async def test_core_can_compact_context_manually() -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+
+    async def compact_now() -> dict:
+        return {
+            "summarized": True,
+            "messageCountBefore": 20,
+            "messageCountAfter": 12,
+            "stateCounts": {"goal": True},
+        }
+
+    server.agent = SimpleNamespace(compact_now=compact_now)
+
+    await server._compact_context({"sessionId": "sess_test", "payload": {}})
+
+    event = json.loads(output.getvalue().splitlines()[0])
+    assert event["type"] == "context_compacted"
+    assert event["payload"]["summarized"] is True
+    assert event["payload"]["messageCountAfter"] == 12
+
+
+@pytest.mark.asyncio
+async def test_core_rejects_compact_while_turn_running() -> None:
+    output = io.StringIO()
+    server = CoreServer(emitter=ProtocolEmitter(output))
+    server.session_id = "sess_test"
+
+    async def compact_now() -> dict:
+        return {}
+
+    server.agent = SimpleNamespace(compact_now=compact_now)
+    server.active_task = asyncio.create_task(asyncio.Event().wait())
+    try:
+        await server._compact_context({"sessionId": "sess_test", "payload": {}})
+        event = json.loads(output.getvalue().splitlines()[0])
+        assert event["type"] == "error"
+        assert event["payload"]["code"] == "turn_already_running"
+    finally:
+        server.active_task.cancel()
+        await asyncio.gather(server.active_task, return_exceptions=True)

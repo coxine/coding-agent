@@ -346,6 +346,19 @@ export function reducer(state: AppState, action: Action): AppState {
 		}
 		case 'context_updated':
 			return {...state, items: [...state.items, {kind: 'notice', id: event.messageId, text: String(payload.summary ?? ''), level: 'info'}]};
+		case 'context_compacted': {
+			const before = Number(payload.messageCountBefore);
+			const after = Number(payload.messageCountAfter);
+			const summarized = Boolean(payload.summarized);
+			const counts = asRecord(payload.stateCounts);
+			const pieces = [
+				`${before} → ${after} messages`,
+				summarized ? 'model summary applied' : 'deterministic compaction',
+			];
+			if (counts.rejectedApproaches) pieces.push(`${counts.rejectedApproaches} rejected approaches recorded`);
+			const text = `Context compacted: ${pieces.join(', ')}.`;
+			return {...state, items: [...state.items, {kind: 'notice', id: event.messageId, text, level: 'info'}]};
+		}
 		case 'turn_finished':
 			return {...state, activeTurnId: undefined, paused: false, status: 'Ready', step: 0, pendingApproval: undefined, pendingQuestion: undefined};
 		case 'turn_failed':

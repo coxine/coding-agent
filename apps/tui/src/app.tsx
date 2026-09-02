@@ -25,6 +25,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 	const [commandChoice, setCommandChoice] = useState(0);
 	const [questionAnswer, setQuestionAnswer] = useState('');
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+	const [compacting, setCompacting] = useState(false);
 	const clientRef = useRef<CoreClient | null>(null);
 
 	useEffect(() => {
@@ -33,6 +34,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 		const onEvent = (event: CoreEvent) => {
 			dispatch({ type: 'core_event', event });
 			if (['turn_finished', 'turn_failed', 'turn_cancelled'].includes(event.type)) setCancelling(false);
+			if (event.type === 'context_compacted' || event.type === 'error') setCompacting(false);
 			if (event.type === 'shutdown_complete') exit();
 		};
 		const onFatal = (message: string) => dispatch({ type: 'fatal', message });
@@ -192,6 +194,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				if (command.name === '/rename') setInput('/rename ');
 				else {
 					runSlashCommand(command.name, '', client);
+					if (command.name === '/compact') setCompacting(true);
 					setInput('');
 				}
 				return;
@@ -211,6 +214,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				else {
 					const error = runSlashCommand(invocation.command.name, invocation.argument, client);
 					if (error) dispatch({ type: 'notice', message: error, level: 'error' });
+					else if (invocation.command.name === '/compact') setCompacting(true);
 				}
 				setInput('');
 				return;
@@ -258,7 +262,8 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			) : (
 				<Box flexDirection="column">
 					{commandPaletteOpen && <CommandPalette commands={commands} choice={commandChoice} />}
-					<Composer value={input} enabled={canSubmit} />
+					{compacting && <Spinner label="Compacting context…" />}
+					<Composer value={input} enabled={canSubmit && !compacting} />
 				</Box>
 			)}
 			<Footer active={Boolean(state.activeTurnId)} paused={state.paused} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} reasoning={hasReasoning} showReasoning={state.showReasoning} />
@@ -613,16 +618,17 @@ function runSlashCommand(name: string, argument: string, client: CoreClient): st
 	if (argument) return `${name} does not accept arguments.`;
 	if (name === '/session') client.listSessions();
 	if (name === '/status') client.requestStatus();
+	if (name === '/compact') client.compactContext();
 }
 
-function Spinner(): React.ReactNode {
+function Spinner({label = 'working'}: {label?: string}): React.ReactNode {
 	const frames = useMemo(() => ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'], []);
 	const [index, setIndex] = useState(0);
 	useEffect(() => {
 		const timer = setInterval(() => setIndex(value => (value + 1) % frames.length), 80);
 		return () => clearInterval(timer);
 	}, [frames]);
-	return <Text color="yellow">{frames[index]} working</Text>;
+	return <Text color="yellow">{frames[index]} {label}</Text>;
 }
 
 function sanitize(text: string): string {

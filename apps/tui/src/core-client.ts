@@ -103,6 +103,11 @@ export class CoreClient extends EventEmitter {
 		this.send(message('get_status', {}, {sessionId: this.sessionId}));
 	}
 
+	compactContext(): void {
+		if (!this.sessionId) throw new Error('Agent Core is not initialized');
+		this.send(message('compact_context', {}, {sessionId: this.sessionId}));
+	}
+
 	switchSession(conversationId: string): void {
 		if (!this.sessionId) throw new Error('Agent Core is not initialized');
 		this.send(message('switch_session', {conversationId}, {sessionId: this.sessionId}));

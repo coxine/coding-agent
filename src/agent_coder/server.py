@@ -99,6 +99,8 @@ class CoreServer:
             await self._list_sessions(message)
         elif message_type == "get_status":
             await self._get_status(message)
+        elif message_type == "compact_context":
+            await self._compact_context(message)
         elif message_type == "switch_session":
             await self._switch_session(message)
         elif message_type == "create_session":
@@ -252,6 +254,22 @@ class CoreServer:
             },
             session_id=self.session_id,
         )
+
+    async def _compact_context(self, message: dict[str, Any]) -> None:
+        if not await self._check_session(message):
+            return
+        if self.agent is None:
+            await self._error("not_initialized", "core is not initialized")
+            return
+        if self.active_task and not self.active_task.done():
+            await self._error("turn_already_running", "cannot compact while a turn is running")
+            return
+        try:
+            info = await self.agent.compact_now()
+        except Exception as exc:
+            await self._error("core_internal_error", f"compact failed: {exc}")
+            return
+        await self.emitter.emit("context_compacted", info, session_id=self.session_id)
 
     async def _switch_session(self, message: dict[str, Any]) -> None:
         if not await self._check_session(message) or not await self._can_change_conversation():

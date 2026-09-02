@@ -373,6 +373,27 @@ class MemoryManager:
             return messages
 
         self.compact_count += 1
+        request, _summarized = await self._run_compaction(messages)
+        return request
+
+    async def force_compact(
+        self, messages: list[dict[str, Any]], changed_files: set[str] | None = None
+    ) -> dict[str, Any]:
+        if changed_files:
+            self._merge(self.state.modified_files, sorted(changed_files))
+
+        self.compact_count += 1
+        request, summarized = await self._run_compaction(messages)
+        return {
+            "summarized": summarized,
+            "messageCountBefore": len(messages),
+            "messageCountAfter": len(request),
+            "stateCounts": self._state_counts(),
+        }
+
+    async def _run_compaction(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], bool]:
         groups = split_groups(messages)
         system, goal, middle, recent = self._partition(groups)
         self._extract_durable([*middle, *recent])
@@ -380,6 +401,7 @@ class MemoryManager:
         middle = dedupe_groups(middle)
         middle = collapse_groups(middle)
 
+        summarized = False
         if self._summarize is not None and middle:
             try:
                 summary = await self._summarize(self._summary_prompt(middle))
@@ -387,12 +409,24 @@ class MemoryManager:
                 if validated is not None:
                     self.state = merge_state(self.state, validated)
                     middle = []
+                    summarized = True
             except Exception:
                 pass
 
         ordered = self._ordered_groups(system, goal, middle, recent)
         ordered = self._hard_clamp(ordered, system, goal)
-        return _flatten_groups(self._render(ordered))
+        return _flatten_groups(self._render(ordered)), summarized
+
+    def _state_counts(self) -> dict[str, Any]:
+        return {
+            "goal": bool(self.state.goal),
+            "constraints": len(self.state.constraints),
+            "confirmedFacts": len(self.state.confirmed_facts),
+            "decisions": len(self.state.decisions),
+            "rejectedApproaches": len(self.state.rejected_approaches),
+            "modifiedFiles": len(self.state.modified_files),
+            "relevantFiles": len(self.state.relevant_files),
+        }
 
     def stats(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         total = sum(_size(message) for message in messages)
@@ -404,15 +438,7 @@ class MemoryManager:
             "requestMessageCount": len(messages),
             "truncated": total > self._trigger,
             "compacted": self.compact_count > 0,
-            "stateCounts": {
-                "goal": bool(self.state.goal),
-                "constraints": len(self.state.constraints),
-                "confirmedFacts": len(self.state.confirmed_facts),
-                "decisions": len(self.state.decisions),
-                "rejectedApproaches": len(self.state.rejected_approaches),
-                "modifiedFiles": len(self.state.modified_files),
-                "relevantFiles": len(self.state.relevant_files),
-            },
+            "stateCounts": self._state_counts(),
         }
 
     def _partition(
