@@ -131,3 +131,32 @@ test('pause and resume events keep the active turn', () => {
 	assert.equal(state.status, 'Resuming');
 	assert.equal(state.activeTurnId, 'turn_1');
 });
+
+test('reasoning deltas are hidden by default and can be toggled', () => {
+	let state = reducer(initialState('/tmp/project', 'model'), {
+		type: 'core_event',
+		event: message('assistant_message_started', {assistantMessageId: 'asst_1'}),
+	});
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('assistant_reasoning_delta', {assistantMessageId: 'asst_1', text: 'Think '}),
+	});
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('assistant_reasoning_delta', {assistantMessageId: 'asst_1', text: 'hard.'}),
+	});
+	state = reducer(state, {
+		type: 'core_event',
+		event: message('assistant_message_finished', {assistantMessageId: 'asst_1', text: 'Done', reasoning: 'Think hard.'}),
+	});
+
+	const assistant = state.items.find(item => item.kind === 'assistant');
+	assert.equal(assistant?.kind, 'assistant');
+	assert.equal(assistant?.reasoning, 'Think hard.');
+	assert.equal(state.showReasoning, false);
+
+	state = reducer(state, {type: 'toggle_reasoning'});
+	assert.equal(state.showReasoning, true);
+	state = reducer(state, {type: 'toggle_reasoning'});
+	assert.equal(state.showReasoning, false);
+});

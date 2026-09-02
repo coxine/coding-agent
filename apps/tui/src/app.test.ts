@@ -38,3 +38,24 @@ test('assistant messages render without a role label', () => {
 	assert.match(output, /这是项目介绍。/);
 	assert.doesNotMatch(output, /Agent/);
 });
+
+test('assistant reasoning is hidden by default and expands with the toggle prop', () => {
+	const hidden = renderToString(
+		React.createElement(Transcript, {
+			item: {kind: 'assistant', id: 'assistant-1', text: 'Done', finished: true, reasoning: 'Private thought'},
+		}),
+		{columns: 60},
+	);
+	assert.match(hidden, /Reasoning hidden/);
+	assert.doesNotMatch(hidden, /Private thought/);
+
+	const shown = renderToString(
+		React.createElement(Transcript, {
+			item: {kind: 'assistant', id: 'assistant-1', text: 'Done', finished: true, reasoning: 'Private thought'},
+			showReasoning: true,
+		}),
+		{columns: 60},
+	);
+	assert.match(shown, /Private thought/);
+	assert.doesNotMatch(shown, /Reasoning hidden/);
+});

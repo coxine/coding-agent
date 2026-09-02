@@ -67,6 +67,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 	const canSubmit = state.connection === 'ready' && !state.activeTurnId;
 	const commands = useMemo(() => matchingCommands(input), [input]);
 	const commandPaletteOpen = canSubmit && commands.length > 0;
+	const hasReasoning = state.items.some(item => item.kind === 'assistant' && Boolean(item.reasoning));
 
 	useEffect(() => {
 		setCommandChoice(0);
@@ -124,6 +125,11 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 			if (key.downArrow) setSessionChoice(value => Math.min(state.sessions.length - 1, value + 1));
 			if (character.toLowerCase() === 'n') client.createSession();
 			if (key.return && state.sessions[sessionChoice]) client.switchSession(state.sessions[sessionChoice].id);
+			return;
+		}
+
+		if (key.ctrl && character === 'r') {
+			dispatch({ type: 'toggle_reasoning' });
 			return;
 		}
 
@@ -214,7 +220,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 				{state.items.length === 0 ? (
 					<Text dimColor>Describe a coding task. The agent can inspect, edit, and test this workspace.</Text>
 				) : (
-					state.items.map(item => <Transcript key={`${item.kind}-${item.id}`} item={item} tool={item.kind === 'tool' ? state.tools[item.id] : undefined} />)
+					state.items.map(item => <Transcript key={`${item.kind}-${item.id}`} item={item} tool={item.kind === 'tool' ? state.tools[item.id] : undefined} showReasoning={state.showReasoning} />)
 				)}
 			</Box>
 			{state.pendingApproval ? (
@@ -236,7 +242,7 @@ export function App({ repositoryRoot, workspaceRoot, model, baseUrl }: AppProps)
 					<Composer value={input} enabled={canSubmit} />
 				</Box>
 			)}
-			<Footer active={Boolean(state.activeTurnId)} paused={state.paused} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} />
+			<Footer active={Boolean(state.activeTurnId)} paused={state.paused} approval={Boolean(state.pendingApproval)} question={Boolean(state.pendingQuestion)} sessions={state.sessionPickerOpen} status={Boolean(state.statusReport)} reasoning={hasReasoning} showReasoning={state.showReasoning} />
 		</Box>
 	);
 }
@@ -250,7 +256,7 @@ function Header({ model, workspace, conversation, status, step }: { model: strin
 	);
 }
 
-export function Transcript({ item, tool }: { item: TranscriptItem; tool?: ToolView }): React.ReactNode {
+export function Transcript({ item, tool, showReasoning = false }: { item: TranscriptItem; tool?: ToolView; showReasoning?: boolean }): React.ReactNode {
 	if (item.kind === 'user') {
 		return (
 			<Box width="100%" backgroundColor="#eeeeee" paddingX={1} marginBottom={1}>
@@ -259,9 +265,24 @@ export function Transcript({ item, tool }: { item: TranscriptItem; tool?: ToolVi
 		);
 	}
 	if (item.kind === 'assistant') {
-		if (!item.text && !item.finished) return <Box marginBottom={1}><Spinner /></Box>;
-		if (!item.text) return null;
-		return <Box flexDirection="column" marginBottom={1}><MarkdownText>{item.text}</MarkdownText></Box>;
+		const hasReasoning = Boolean(item.reasoning);
+		if (!item.text && !item.finished) {
+			return (
+				<Box flexDirection="column" marginBottom={1}>
+					{hasReasoning && showReasoning ? <ReasoningBlock text={item.reasoning ?? ''} /> : null}
+					<Spinner />
+				</Box>
+			);
+		}
+		if (!item.text && !hasReasoning) return null;
+		return (
+			<Box flexDirection="column" marginBottom={1}>
+				{hasReasoning ? (
+					showReasoning ? <ReasoningBlock text={item.reasoning ?? ''} /> : <ReasoningHidden />
+				) : null}
+				{item.text ? <MarkdownText>{item.text}</MarkdownText> : null}
+			</Box>
+		);
 	}
 	if (item.kind === 'notice') {
 		return <Box marginBottom={1}><Text color={item.level === 'error' ? 'red' : 'yellow'}>{item.level === 'error' ? 'Error' : 'Info'}: {item.text}</Text></Box>;
@@ -478,7 +499,23 @@ export function Composer({ value, enabled }: { value: string; enabled: boolean }
 	);
 }
 
-function Footer({ active, paused, approval, question, sessions, status }: { active: boolean; paused: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean }): React.ReactNode {
+function ReasoningBlock({ text }: { text: string }): React.ReactNode {
+	return (
+		<Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1} marginBottom={1}>
+			<Text bold color="magenta">Reasoning</Text>
+			<Text dimColor>{sanitize(text)}</Text>
+		</Box>
+	);
+}
+
+function ReasoningHidden(): React.ReactNode {
+	return <Text dimColor>Reasoning hidden — Ctrl+R to show</Text>;
+}
+
+function Footer({ active, paused, approval, question, sessions, status, reasoning, showReasoning }: { active: boolean; paused: boolean; approval: boolean; question: boolean; sessions: boolean; status: boolean; reasoning: boolean; showReasoning: boolean }): React.ReactNode {
+	const reasoningHint: Hint | undefined = reasoning
+		? { key: 'ctrl+r', label: showReasoning ? 'hide reasoning' : 'show reasoning' }
+		: undefined;
 	const hints: Hint[] = approval
 		? [
 			{ key: 'y', label: 'allow' },
@@ -506,6 +543,7 @@ function Footer({ active, paused, approval, question, sessions, status }: { acti
 						? [
 							{ key: 'esc', label: paused ? 'resume' : 'pause' },
 							{ key: 'ctrl+c', label: 'cancel task' },
+							...(reasoningHint ? [reasoningHint] : []),
 						]
 						: [
 							{ key: 'enter', label: 'send' },
@@ -513,6 +551,7 @@ function Footer({ active, paused, approval, question, sessions, status }: { acti
 							{ key: '/status', label: 'info' },
 							{ key: 'ctrl+enter', label: 'newline' },
 							{ key: 'ctrl+c', label: 'exit' },
+							...(reasoningHint ? [reasoningHint] : []),
 						];
 	return <Box marginTop={1}><HintLine hints={hints} /></Box>;
 }

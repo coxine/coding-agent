@@ -321,6 +321,7 @@ App
 | `Esc` | 关闭面板 | `session_picker` |
 | `Ctrl+Enter` | 插入换行 | `composing` |
 | `Esc` | 暂停当前 turn；暂停后再次按下继续；关闭详情 | `running` / `paused` / `details` |
+| `Ctrl+R` | 展开或折叠模型思考内容 | 有 reasoning 内容的 `running` / `composing` |
 | `Ctrl+C` | 第一次取消活动 turn，空闲时退出 | 全局 |
 | `Ctrl+O` | 打开或关闭选中工具详情 | 非 `approval` |
 | `↑` / `↓` | 移动选择或滚动 | `approval` / `details` |
@@ -387,7 +388,8 @@ Reducer 输入只允许：
 | `turn_resumed` | 保留活动 turn，恢复运行状态 |
 | `assistant_message_started` | 创建空 Agent 消息块 |
 | `assistant_delta` | 追加文本并刷新显示 |
-| `assistant_message_finished` | 固化消息内容 |
+| `assistant_reasoning_delta` | 追加折叠的思考内容 |
+| `assistant_message_finished` | 固化消息内容和完整思考内容 |
 | `tool_requested` | 创建工具卡片 |
 | `approval_required` | 切换到 approval 模式 |
 | `user_input_required` | 切换到 question 模式并显示问题 |

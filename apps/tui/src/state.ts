@@ -16,7 +16,7 @@ export type ToolView = {
 
 export type TranscriptItem =
 	| {kind: 'user'; id: string; text: string}
-	| {kind: 'assistant'; id: string; text: string; finished: boolean}
+	| {kind: 'assistant'; id: string; text: string; finished: boolean; reasoning?: string}
 	| {kind: 'tool'; id: string}
 	| {kind: 'notice'; id: string; text: string; level: 'info' | 'error'};
 
@@ -95,6 +95,7 @@ export type AppState = {
 	step: number;
 	activeTurnId?: string;
 	paused: boolean;
+	showReasoning: boolean;
 	items: TranscriptItem[];
 	tools: Record<string, ToolView>;
 	pendingApproval?: Approval;
@@ -107,6 +108,7 @@ export type Action =
 	| {type: 'submitted'; turnId: string; text: string}
 	| {type: 'fatal'; message: string}
 	| {type: 'notice'; message: string; level?: 'info' | 'error'}
+	| {type: 'toggle_reasoning'}
 	| {type: 'close_session_picker'}
 	| {type: 'close_status'};
 
@@ -121,6 +123,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 		sessionPickerOpen: false,
 		step: 0,
 		paused: false,
+		showReasoning: false,
 		items: [],
 		tools: {},
 	};
@@ -129,6 +132,7 @@ export function initialState(workspaceRoot: string, model: string): AppState {
 export function reducer(state: AppState, action: Action): AppState {
 	if (action.type === 'close_session_picker') return {...state, sessionPickerOpen: false};
 	if (action.type === 'close_status') return {...state, statusReport: undefined};
+	if (action.type === 'toggle_reasoning') return {...state, showReasoning: !state.showReasoning};
 	if (action.type === 'fatal') {
 		return {...state, connection: 'fatal', status: 'Failed', fatalError: action.message};
 	}
@@ -211,13 +215,29 @@ export function reducer(state: AppState, action: Action): AppState {
 				),
 			};
 		}
+		case 'assistant_reasoning_delta': {
+			const id = String(payload.assistantMessageId);
+			return {
+				...state,
+				items: state.items.map(item =>
+					item.kind === 'assistant' && item.id === id
+						? {...item, reasoning: (item.reasoning ?? '') + String(payload.text ?? '')}
+						: item,
+				),
+			};
+		}
 		case 'assistant_message_finished': {
 			const id = String(payload.assistantMessageId);
 			return {
 				...state,
 				items: state.items.map(item =>
 					item.kind === 'assistant' && item.id === id
-						? {...item, text: String(payload.text ?? item.text), finished: true}
+						? {
+								...item,
+								text: String(payload.text ?? item.text),
+								reasoning: String(payload.reasoning ?? item.reasoning ?? ''),
+								finished: true,
+							}
 						: item,
 				),
 			};

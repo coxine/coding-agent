@@ -43,6 +43,7 @@ class TokenUsage:
 class AssistantReply:
     content: str
     tool_calls: list[ToolCall]
+    reasoning: str = ""
     usage: TokenUsage | None = None
 
     def as_message(self) -> dict[str, Any]:
@@ -65,6 +66,7 @@ class ModelClientProtocol(Protocol):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         on_text_delta: TextDeltaCallback,
+        on_reasoning_delta: TextDeltaCallback | None = None,
     ) -> AssistantReply: ...
 
 
@@ -85,6 +87,7 @@ class OpenAICompatibleClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         on_text_delta: TextDeltaCallback,
+        on_reasoning_delta: TextDeltaCallback | None = None,
     ) -> AssistantReply:
         request: dict[str, Any] = {
             "model": self._model,
@@ -104,6 +107,7 @@ class OpenAICompatibleClient:
             stream = await self._client.chat.completions.create(**request)
 
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         accumulated: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
 
@@ -130,6 +134,13 @@ class OpenAICompatibleClient:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
+            reasoning_delta = getattr(delta, "reasoning_content", None)
+            if not isinstance(reasoning_delta, str):
+                reasoning_delta = getattr(delta, "reasoning", None)
+            if isinstance(reasoning_delta, str) and reasoning_delta:
+                reasoning_parts.append(reasoning_delta)
+                if on_reasoning_delta is not None:
+                    await on_reasoning_delta(reasoning_delta)
             if delta.content:
                 text_parts.append(delta.content)
                 await on_text_delta(delta.content)
@@ -162,4 +173,9 @@ class OpenAICompatibleClient:
                 pass
             calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
 
-        return AssistantReply(content="".join(text_parts), tool_calls=calls, usage=usage)
+        return AssistantReply(
+            content="".join(text_parts),
+            tool_calls=calls,
+            reasoning="".join(reasoning_parts),
+            usage=usage,
+        )

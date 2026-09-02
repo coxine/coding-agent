@@ -495,12 +495,34 @@ TUI 按收到顺序追加相同 `assistantMessageId` 的文本。
   "turnId": "turn_1",
   "payload": {
     "assistantMessageId": "asst_1",
+    "text": "我先检查相关实现。",
+    "reasoning": ""
+  }
+}
+```
+
+完整 `text` 用于校验流式拼接结果；即使没有文本，也允许发送空字符串。`reasoning` 是本次模型回复的思考内容；不支持 reasoning 的模型返回空字符串。当模型以流式方式提供 reasoning 时，TUI 应按相同 `assistantMessageId` 追加 `assistant_reasoning_delta`。
+
+### 7.6.1 `assistant_reasoning_delta`
+
+部分模型会先输出不可直接展示给用户思考内容。Core 用独立事件流式转发这些内容，TUI 默认折叠展示：
+
+```json
+{
+  "protocolVersion": 1,
+  "type": "assistant_reasoning_delta",
+  "messageId": "msg_reasoning_1",
+  "timestamp": "2026-08-27T08:01:01.010Z",
+  "sessionId": "sess_1",
+  "turnId": "turn_1",
+  "payload": {
+    "assistantMessageId": "asst_1",
     "text": "我先检查相关实现。"
   }
 }
 ```
 
-完整 `text` 用于校验流式拼接结果；即使没有文本，也允许发送空字符串。
+该事件只补充展示内容，不写入会话消息；`assistant_message_finished` 中的 `reasoning` 是最终完整内容。
 
 ### 7.7 `tool_requested`
 

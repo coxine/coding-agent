@@ -143,15 +143,30 @@ class Agent:
                     turn,
                 )
 
+            async def on_reasoning_delta(text: str) -> None:
+                await self._pause_checkpoint()
+                await self._emit(
+                    "assistant_reasoning_delta",
+                    {"assistantMessageId": assistant_message_id, "text": text},
+                    turn,
+                )
+
             reply = await self.model.complete(
-                self.context.build_request(self.messages), self.tools.schemas, on_delta
+                self.context.build_request(self.messages),
+                self.tools.schemas,
+                on_delta,
+                on_reasoning_delta,
             )
             await self._pause_checkpoint()
             if self.persist_usage is not None:
                 await self.persist_usage(turn.turn_id, turn.step, reply.usage)
             await self._emit(
                 "assistant_message_finished",
-                {"assistantMessageId": assistant_message_id, "text": reply.content},
+                {
+                    "assistantMessageId": assistant_message_id,
+                    "text": reply.content,
+                    "reasoning": reply.reasoning,
+                },
                 turn,
             )
             self.messages.append(reply.as_message())

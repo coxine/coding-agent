@@ -20,10 +20,12 @@ class FakeModel:
         self.replies = replies
         self.requests: list[list[dict[str, Any]]] = []
 
-    async def complete(self, messages, tools, on_text_delta):
+    async def complete(self, messages, tools, on_text_delta, on_reasoning_delta=None):
         del tools
         self.requests.append(messages)
         reply = self.replies.pop(0)
+        if reply.reasoning and on_reasoning_delta is not None:
+            await on_reasoning_delta(reply.reasoning)
         if reply.content:
             await on_text_delta(reply.content)
         return reply
@@ -95,6 +97,38 @@ async def test_agent_records_usage_after_each_model_request(tmp_path) -> None:
     await agent.run_turn("turn_test", "Say done")
 
     assert recorded == [("turn_test", 1, usage)]
+
+
+@pytest.mark.asyncio
+async def test_agent_emits_reasoning_delta_and_finished_reasoning(tmp_path) -> None:
+    output = io.StringIO()
+    model = FakeModel(
+        [AssistantReply(content="Done.", tool_calls=[], reasoning="Private thought")]
+    )
+
+    async def approve(tool_call_id: str, payload: dict[str, Any]) -> bool:
+        del tool_call_id, payload
+        return False
+
+    agent = Agent(
+        config=config(tmp_path),
+        session_id="sess_test",
+        emitter=ProtocolEmitter(output),
+        model=model,
+        tools=ToolRegistry(tmp_path),
+        request_approval=approve,
+    )
+    await agent.run_turn("turn_test", "Say done")
+
+    emitted = events(output)
+    reasoning_event = next(
+        event for event in emitted if event["type"] == "assistant_reasoning_delta"
+    )
+    assert reasoning_event["payload"]["text"] == "Private thought"
+    finished_event = next(
+        event for event in emitted if event["type"] == "assistant_message_finished"
+    )
+    assert finished_event["payload"]["reasoning"] == "Private thought"
 
 
 @pytest.mark.asyncio

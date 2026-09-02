@@ -79,6 +79,49 @@ async def test_streaming_client_collects_usage_only_chunk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_streaming_client_collects_reasoning_content() -> None:
+    reasoning_chunk = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content="",
+                    tool_calls=None,
+                    reasoning_content="Let me inspect ",
+                )
+            )
+        ],
+    )
+    text_chunk = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(content="Done", tool_calls=None)
+            )
+        ],
+    )
+    completions = FakeCompletions([reasoning_chunk, text_chunk])
+    client = OpenAICompatibleClient(
+        api_key="unused", base_url="https://example.invalid/v1", model="test-model"
+    )
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=completions)
+    )
+    reasoning_deltas: list[str] = []
+
+    async def on_reasoning_delta(text: str) -> None:
+        reasoning_deltas.append(text)
+
+    async def on_delta(text: str) -> None:
+        del text
+
+    reply = await client.complete([], [], on_delta, on_reasoning_delta)
+
+    assert reply.reasoning == "Let me inspect "
+    assert reasoning_deltas == ["Let me inspect "]
+
+
+@pytest.mark.asyncio
 async def test_client_falls_back_when_provider_rejects_usage_option() -> None:
     chunk = SimpleNamespace(
         usage=None,
